@@ -944,7 +944,7 @@ class DriverManager:
             return True, "驅動程式安裝完成"
         return False, err or out
 
-    @staticmethod
+    @staticmethod  
     def export_drivers_from_offline_image(mount_dir: str, export_dir: str) -> tuple[bool, str]:
         """
         從已掛載的映像中萃取所有驅動程式
@@ -1199,18 +1199,56 @@ class App(tk.Tk):
         smart_fix_btn.pack(side=tk.LEFT, padx=(8, 0))
         
         # 添加工具提示
+        tooltip_window = None  # 用於追蹤當前的工具提示窗口
+        
         def show_tooltip(event):
-            tooltip = tk.Toplevel()
-            tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
-            label = tk.Label(tooltip, text="智能診斷並自動修復所有 WIM 掛載問題\n包含：狀態檢查、清理衝突、修復損壞掛載", 
-                           bg="lightyellow", font=("Arial", 9))
-            label.pack()
+            nonlocal tooltip_window
+            # 如果已經有工具提示窗口存在，先關閉它
+            if tooltip_window:
+                tooltip_window.destroy()
+                tooltip_window = None
+            
+            tooltip_window = tk.Toplevel()
+            tooltip_window.wm_overrideredirect(True)
+            tooltip_window.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            
+            # 使用 Frame 來控制寬度和添加邊距
+            frame = tk.Frame(tooltip_window, bg="lightyellow", relief="solid", bd=1)
+            frame.pack()
+            
+            # 分行顯示，避免文字過長
+            lines = [
+                "🔧 智能一鍵修復",
+                "自動診斷並修復所有 WIM 掛載問題",
+                "",
+                "包含功能：",
+                "• 狀態檢查與診斷", 
+                "• 清理掛載衝突",
+                "• 修復損壞掛載",
+                "• 系統級清理"
+            ]
+            
+            for line in lines:
+                label = tk.Label(frame, text=line, bg="lightyellow", 
+                               font=("Arial", 9), anchor="w", justify="left")
+                label.pack(anchor="w", padx=8, pady=1)
+            
             def hide_tooltip():
-                tooltip.destroy()
-            tooltip.after(3000, hide_tooltip)
+                nonlocal tooltip_window
+                if tooltip_window:
+                    tooltip_window.destroy()
+                    tooltip_window = None
+                    
+            tooltip_window.after(4000, hide_tooltip)  # 延長顯示時間
+        
+        def hide_tooltip_on_leave(event):
+            nonlocal tooltip_window
+            if tooltip_window:
+                tooltip_window.destroy()
+                tooltip_window = None
         
         smart_fix_btn.bind("<Enter>", show_tooltip)
+        smart_fix_btn.bind("<Leave>", hide_tooltip_on_leave)
 
     def _build_wim2_tab(self, parent: tk.Misc):
         # 使用 padding 的 frame
@@ -1297,18 +1335,56 @@ class App(tk.Tk):
         smart_fix_btn2.pack(side=tk.LEFT, padx=(8, 0))
         
         # 添加工具提示
+        tooltip_window2 = None  # 用於追蹤當前的工具提示窗口
+        
         def show_tooltip2(event):
-            tooltip = tk.Toplevel()
-            tooltip.wm_overrideredirect(True)
-            tooltip.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
-            label = tk.Label(tooltip, text="智能診斷並自動修復所有 WIM 掛載問題\n包含：狀態檢查、清理衝突、修復損壞掛載", 
-                           bg="lightyellow", font=("Arial", 9))
-            label.pack()
+            nonlocal tooltip_window2
+            # 如果已經有工具提示窗口存在，先關閉它
+            if tooltip_window2:
+                tooltip_window2.destroy()
+                tooltip_window2 = None
+            
+            tooltip_window2 = tk.Toplevel()
+            tooltip_window2.wm_overrideredirect(True)
+            tooltip_window2.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
+            
+            # 使用 Frame 來控制寬度和添加邊距
+            frame = tk.Frame(tooltip_window2, bg="lightyellow", relief="solid", bd=1)
+            frame.pack()
+            
+            # 分行顯示，避免文字過長
+            lines = [
+                "🔧 智能一鍵修復",
+                "自動診斷並修復所有 WIM 掛載問題",
+                "",
+                "包含功能：",
+                "• 狀態檢查與診斷", 
+                "• 清理掛載衝突",
+                "• 修復損壞掛載",
+                "• 系統級清理"
+            ]
+            
+            for line in lines:
+                label = tk.Label(frame, text=line, bg="lightyellow", 
+                               font=("Arial", 9), anchor="w", justify="left")
+                label.pack(anchor="w", padx=8, pady=1)
+            
             def hide_tooltip():
-                tooltip.destroy()
-            tooltip.after(3000, hide_tooltip)
+                nonlocal tooltip_window2
+                if tooltip_window2:
+                    tooltip_window2.destroy()
+                    tooltip_window2 = None
+                    
+            tooltip_window2.after(4000, hide_tooltip)  # 延長顯示時間
+        
+        def hide_tooltip2_on_leave(event):
+            nonlocal tooltip_window2
+            if tooltip_window2:
+                tooltip_window2.destroy()
+                tooltip_window2 = None
         
         smart_fix_btn2.bind("<Enter>", show_tooltip2)
+        smart_fix_btn2.bind("<Leave>", hide_tooltip2_on_leave)
 
     # WIM 分頁配置載入
     def _load_wim_config(self):
@@ -1386,10 +1462,10 @@ class App(tk.Tk):
         desc_text = "從已掛載的 Windows 映像中萃取所有驅動程式到指定目錄。\n萃取完成後可在「驅動安裝」分頁中使用這些驅動程式。"
         ttk.Label(desc_frame, text=desc_text, wraplength=600).pack(anchor=tk.W)
 
-        # 來源映像路徑
+        # 來源 WIM 檔案路徑
         row1 = ttk.Frame(content_frame)
         row1.pack(fill=tk.X, pady=(0, 12))
-        ttk.Label(row1, text="來源映像路徑", width=14).pack(side=tk.LEFT)
+        ttk.Label(row1, text="來源 WIM 檔案", width=14).pack(side=tk.LEFT)
         self.var_extract_source = tk.StringVar()
         ent_extract_source = ttk.Entry(row1, textvariable=self.var_extract_source, width=40)
         ent_extract_source.pack(side=tk.LEFT, padx=(8, 6), fill=tk.X, expand=True)
@@ -2927,10 +3003,11 @@ class App(tk.Tk):
     # ---------- Extract 事件 ----------
 
     def _on_browse_extract_source(self):
+        """選擇驅動程式擷取的來源映像掛載目錄"""
         path = filedialog.askdirectory(title="選擇來源映像掛載目錄")
         if path:
             self.var_extract_source.set(path)
-            self._log(f"已選擇來源映像路徑：{path}")
+            self._log(f"已選擇來源 WIM 檔案：{path}")
             self._save_config()
 
     def _on_sync_extract_from_wim1(self):
@@ -3008,11 +3085,11 @@ class App(tk.Tk):
         output_path = self.var_extract_output.get().strip()
         
         if not source_path or not output_path:
-            messagebox.showwarning("輸入不完整", "請選擇來源映像路徑和萃取輸出目錄")
+            messagebox.showwarning("輸入不完整", "請選擇來源映像掛載目錄和萃取輸出目錄")
             return
             
         if not os.path.exists(source_path):
-            messagebox.showerror("路徑錯誤", "來源映像路徑不存在")
+            messagebox.showerror("路徑錯誤", "來源映像掛載目錄不存在")
             return
             
         self._log("開始萃取驅動程式...")
@@ -3021,7 +3098,7 @@ class App(tk.Tk):
 
     def _do_extract_drivers(self, source_path: str, output_path: str):
         self._log(f"正在從映像萃取驅動程式...")
-        self._log(f"  來源映像: {source_path}")
+        self._log(f"  來源映像目錄: {source_path}")
         self._log(f"  輸出目錄: {output_path}")
         
         ok, msg = DriverManager.export_drivers_from_offline_image(source_path, output_path)
