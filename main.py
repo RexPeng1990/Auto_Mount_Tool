@@ -1050,7 +1050,7 @@ class DriverManager:
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WIM/Driver 管理工具 - Rex 版")
+        self.title("WIM/Driver 管理工具")
         self.geometry("750x600")
         self.minsize(750, 580)
         
@@ -1069,12 +1069,12 @@ class App(tk.Tk):
     # UI 組件
     def _build_ui(self):
         # 主容器
-        main_frame = ttk.Frame(self, padding=8)
+        main_frame = ttk.Frame(self, padding=4)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # 建立 Notebook (分頁)
         self.notebook = ttk.Notebook(main_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(0, 4))
 
         # 分頁 1：WIM 掛載（使用子分頁）
         wim_frame = ttk.Frame(self.notebook)
@@ -1082,7 +1082,7 @@ class App(tk.Tk):
         
         # 在 WIM 掛載分頁中建立子分頁
         wim_sub_notebook = ttk.Notebook(wim_frame)
-        wim_sub_notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        wim_sub_notebook.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
         
         # 子分頁 1：WIM 掛載 #1
         wim1_frame = ttk.Frame(wim_sub_notebook)
@@ -1111,20 +1111,23 @@ class App(tk.Tk):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.txt.configure(state=tk.DISABLED)
 
+        # 版權資訊標籤（右下角）
+        copyright_frame = ttk.Frame(main_frame)
+        copyright_frame.pack(fill=tk.X)
+        
+        # 使用 Frame 來控制對齊
+        copyright_label = tk.Label(copyright_frame, text="Developed by RexPeng", 
+                                 font=('Arial', 8), fg='gray', anchor='e')
+        copyright_label.pack(side=tk.RIGHT, padx=(0, 8), pady=(2, 4))
+
     # WIM 掛載分頁
     def _build_wim1_tab(self, parent: tk.Misc):
         # 使用 padding 的 frame
-        content_frame = ttk.Frame(parent, padding=12)
+        content_frame = ttk.Frame(parent, padding=8)
         content_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 說明文字
-        desc_frame = ttk.LabelFrame(content_frame, text="功能說明", padding=8)
-        desc_frame.pack(fill=tk.X, pady=(0, 12))
-        desc_text = "此功能用於掛載/卸載第一組 Windows 映像檔 (WIM)。\n操作流程：選擇 WIM 檔案 → 讀取映像資訊 → 設定掛載資料夾 → 掛載映像 → 修改檔案 → 卸載並提交變更。"
-        ttk.Label(desc_frame, text=desc_text, wraplength=600).pack(anchor=tk.W)
-
         # WIM 掛載 #1
-        wim1_frame = ttk.LabelFrame(content_frame, text="WIM 掛載 #1", padding=10)
+        wim1_frame = ttk.Frame(content_frame, padding=10)
         wim1_frame.pack(fill=tk.X, pady=(0, 12))
 
         # 行 1：選擇 WIM 檔
@@ -1252,17 +1255,11 @@ class App(tk.Tk):
 
     def _build_wim2_tab(self, parent: tk.Misc):
         # 使用 padding 的 frame
-        content_frame = ttk.Frame(parent, padding=12)
+        content_frame = ttk.Frame(parent, padding=8)
         content_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 說明文字
-        desc_frame = ttk.LabelFrame(content_frame, text="功能說明", padding=8)
-        desc_frame.pack(fill=tk.X, pady=(0, 12))
-        desc_text = "此功能用於掛載/卸載第二組 Windows 映像檔 (WIM)。\n操作流程：選擇 WIM 檔案 → 讀取映像資訊 → 設定掛載資料夾 → 掛載映像 → 修改檔案 → 卸載並提交變更。"
-        ttk.Label(desc_frame, text=desc_text, wraplength=600).pack(anchor=tk.W)
-
         # WIM 掛載 #2
-        wim2_frame = ttk.LabelFrame(content_frame, text="WIM 掛載 #2", padding=10)
+        wim2_frame = ttk.Frame(content_frame, padding=10)
         wim2_frame.pack(fill=tk.X, pady=(0, 12))
 
         # 行 1：選擇 WIM 檔 #2
@@ -1424,19 +1421,9 @@ class App(tk.Tk):
 
     # Driver 管理分頁（使用子分頁：萃取和安裝）
     def _build_driver_tab(self, parent: tk.Misc):
-        # 使用 padding 的 frame
-        content_frame = ttk.Frame(parent, padding=8)
-        content_frame.pack(fill=tk.BOTH, expand=True)
-
-        # 說明文字
-        desc_frame = ttk.LabelFrame(content_frame, text="功能說明", padding=8)
-        desc_frame.pack(fill=tk.X, pady=(0, 8))
-        desc_text = "此功能提供驅動程式的萃取與安裝。可以從一個映像萃取驅動，然後安裝到另一個映像，或直接安裝外部驅動程式。"
-        ttk.Label(desc_frame, text=desc_text, wraplength=600).pack(anchor=tk.W)
-
         # 建立子分頁
-        driver_sub_notebook = ttk.Notebook(content_frame)
-        driver_sub_notebook.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        driver_sub_notebook = ttk.Notebook(parent)
+        driver_sub_notebook.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
         # 子分頁 1：驅動程式萃取
         extract_frame = ttk.Frame(driver_sub_notebook)
@@ -1452,20 +1439,10 @@ class App(tk.Tk):
         self._load_driver_config()
 
     def _build_extract_subtab(self, parent: tk.Misc):
-        # 使用 padding 的 frame
-        content_frame = ttk.Frame(parent, padding=12)
-        content_frame.pack(fill=tk.BOTH, expand=True)
-
-        # 萃取說明
-        desc_frame = ttk.LabelFrame(content_frame, text="萃取說明", padding=8)
-        desc_frame.pack(fill=tk.X, pady=(0, 12))
-        desc_text = "從已掛載的 Windows 映像中萃取所有驅動程式到指定目錄。\n萃取完成後可在「驅動安裝」分頁中使用這些驅動程式。"
-        ttk.Label(desc_frame, text=desc_text, wraplength=600).pack(anchor=tk.W)
-
         # 來源 WIM 檔案路徑
-        row1 = ttk.Frame(content_frame)
-        row1.pack(fill=tk.X, pady=(0, 12))
-        ttk.Label(row1, text="來源 WIM 檔案", width=14).pack(side=tk.LEFT)
+        row1 = ttk.Frame(parent)
+        row1.pack(fill=tk.X, pady=(8, 12), padx=8)
+        ttk.Label(row1, text="來源 WIM 檔案", width=12).pack(side=tk.LEFT)
         self.var_extract_source = tk.StringVar()
         ent_extract_source = ttk.Entry(row1, textvariable=self.var_extract_source, width=40)
         ent_extract_source.pack(side=tk.LEFT, padx=(8, 6), fill=tk.X, expand=True)
@@ -1478,9 +1455,9 @@ class App(tk.Tk):
         ttk.Button(source_sync_frame, text="從 WIM#2", command=self._on_sync_extract_from_wim2).pack(side=tk.LEFT, padx=(6, 0))
 
         # 萃取輸出目錄
-        row2 = ttk.Frame(content_frame)
-        row2.pack(fill=tk.X, pady=(0, 12))
-        ttk.Label(row2, text="驅動萃取目錄", width=14).pack(side=tk.LEFT)
+        row2 = ttk.Frame(parent)
+        row2.pack(fill=tk.X, pady=(0, 12), padx=8)
+        ttk.Label(row2, text="驅動萃取目錄", width=12).pack(side=tk.LEFT)
         self.var_extract_output = tk.StringVar()
         ent_extract_output = ttk.Entry(row2, textvariable=self.var_extract_output, width=40)
         ent_extract_output.pack(side=tk.LEFT, padx=(8, 6), fill=tk.X, expand=True)
@@ -1493,28 +1470,18 @@ class App(tk.Tk):
         ttk.Button(output_btn_frame, text="開啟", command=self._on_open_extract_dir).pack(side=tk.LEFT, padx=(6, 0))
 
         # 萃取操作按鈕
-        row3 = ttk.Frame(content_frame)
-        row3.pack(fill=tk.X, pady=(0, 8))
+        row3 = ttk.Frame(parent)
+        row3.pack(fill=tk.X, pady=(0, 8), padx=8)
         extract_action_frame = ttk.Frame(row3)
         extract_action_frame.pack(side=tk.LEFT)
         ttk.Button(extract_action_frame, text="萃取驅動程式", command=self._on_extract_drivers, width=15).pack(side=tk.LEFT)
         ttk.Button(extract_action_frame, text="查看萃取結果", command=self._on_view_extracted_drivers).pack(side=tk.LEFT, padx=(10, 0))
 
     def _build_install_subtab(self, parent: tk.Misc):
-        # 使用 padding 的 frame
-        content_frame = ttk.Frame(parent, padding=12)
-        content_frame.pack(fill=tk.BOTH, expand=True)
-
-        # 安裝說明
-        desc_frame = ttk.LabelFrame(content_frame, text="安裝說明", padding=8)
-        desc_frame.pack(fill=tk.X, pady=(0, 12))
-        desc_text = "將驅動程式離線安裝到已掛載的 Windows 映像中。\n驅動來源可以是萃取的結果、外部驅動資料夾或單一 .inf 檔案。"
-        ttk.Label(desc_frame, text=desc_text, wraplength=600).pack(anchor=tk.W)
-
         # 目標映像路徑
-        row1 = ttk.Frame(content_frame)
-        row1.pack(fill=tk.X, pady=(0, 12))
-        ttk.Label(row1, text="目標映像路徑", width=14).pack(side=tk.LEFT)
+        row1 = ttk.Frame(parent)
+        row1.pack(fill=tk.X, pady=(8, 12), padx=8)
+        ttk.Label(row1, text="目標映像路徑", width=12).pack(side=tk.LEFT)
         self.var_driver_mount_dir = tk.StringVar()
         ent_driver_mount = ttk.Entry(row1, textvariable=self.var_driver_mount_dir, width=40)
         ent_driver_mount.pack(side=tk.LEFT, padx=(8, 6), fill=tk.X, expand=True)
@@ -1528,9 +1495,9 @@ class App(tk.Tk):
         ttk.Button(target_sync_frame, text="檢查掛載", command=self._on_check_mount_status).pack(side=tk.LEFT, padx=(6, 0))
 
         # 驅動程式來源
-        row2 = ttk.Frame(content_frame)
-        row2.pack(fill=tk.X, pady=(0, 12))
-        ttk.Label(row2, text="驅動程式來源", width=14).pack(side=tk.LEFT)
+        row2 = ttk.Frame(parent)
+        row2.pack(fill=tk.X, pady=(0, 12), padx=8)
+        ttk.Label(row2, text="驅動程式來源", width=12).pack(side=tk.LEFT)
         self.var_driver_source = tk.StringVar()
         ent_driver_source = ttk.Entry(row2, textvariable=self.var_driver_source, width=40)
         ent_driver_source.pack(side=tk.LEFT, padx=(8, 6), fill=tk.X, expand=True)
@@ -1543,9 +1510,9 @@ class App(tk.Tk):
         ttk.Button(driver_btn_frame, text="使用萃取結果", command=self._on_use_extracted_drivers).pack(side=tk.LEFT, padx=(6, 0))
 
         # 安裝選項
-        row3 = ttk.Frame(content_frame)
-        row3.pack(fill=tk.X, pady=(0, 12))
-        ttk.Label(row3, text="安裝選項", width=14).pack(side=tk.LEFT)
+        row3 = ttk.Frame(parent)
+        row3.pack(fill=tk.X, pady=(0, 12), padx=8)
+        ttk.Label(row3, text="安裝選項", width=12).pack(side=tk.LEFT)
         
         # 安裝選項框
         options_frame = ttk.Frame(row3)
@@ -1557,8 +1524,8 @@ class App(tk.Tk):
         ttk.Checkbutton(options_frame, text="強制未簽署驱動 (/ForceUnsigned)", variable=self.var_driver_force_unsigned, command=self._save_config).pack(side=tk.LEFT, padx=(20, 0))
 
         # 安裝操作按鈕
-        row4 = ttk.Frame(content_frame)
-        row4.pack(fill=tk.X, pady=(0, 8))
+        row4 = ttk.Frame(parent)
+        row4.pack(fill=tk.X, pady=(0, 8), padx=8)
         
         # 驅動操作按鈕組
         driver_action_frame = ttk.Frame(row4)
