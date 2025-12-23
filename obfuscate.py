@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 """
 簡單的代碼混淆工具
 使用基本的字符串編碼和變量名混淆來保護代碼

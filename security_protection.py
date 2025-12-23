@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 """
 額外安全保護層
 添加反調試、完整性檢查和運行時保護

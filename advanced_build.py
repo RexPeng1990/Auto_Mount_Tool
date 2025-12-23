@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 """
 進階代碼混淆和打包工具
 結合多種混淆技術和加密打包

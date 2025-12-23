@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 """
 終極代碼保護和打包工具
 結合多層加密、混淆、反調試和完整性檢查

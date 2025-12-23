@@ -6,7 +6,7 @@ import codecs
 import sys
 import os
 
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Windows WIM/Driver 管理工具（tkinter）

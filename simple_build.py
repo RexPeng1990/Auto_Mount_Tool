@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 """
 簡化版代碼保護和打包工具
 使用基本混淆和onedir模式確保穩定運行

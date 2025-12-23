@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Windows WIM/Driver 管理工具（tkinter）
@@ -194,8 +194,65 @@ class WIMManager:
             images.append(cur)
             
         return images
-    
+
     @staticmethod
+    def is_path_mounted(mount_dir: str) -> tuple[bool, dict | None, str]:
+        """
+        檢查指定路徑是否已掛載 WIM 映像
+        
+        Args:
+            mount_dir: 要檢查的掛載路徑
+            
+        Returns:
+            (is_mounted, mount_info, error_message)
+            - is_mounted: True 如果路徑已掛載
+            - mount_info: 掛載資訊字典，如果已掛載
+            - error_message: 錯誤訊息，如果查詢失敗
+        """
+        ok, mounts, err = WIMManager.get_mount_info()
+        if not ok:
+            return False, None, err
+        
+        # 標準化路徑以進行比較
+        norm_mount_dir = os.path.normpath(mount_dir).lower()
+        
+        for mount in mounts:
+            if os.path.normpath(mount.get("MountDir", "")).lower() == norm_mount_dir:
+                return True, mount, ""
+        
+        return False, None, ""
+
+    @staticmethod
+    def get_mount_status_for_path(mount_dir: str) -> tuple[str, str]:
+        """
+        取得指定路徑的掛載狀態
+        
+        Returns:
+            (status, details)
+            - status: "mounted", "not_mounted", "error", "needs_remount"
+            - details: 詳細說明
+        """
+        is_mounted, info, err = WIMManager.is_path_mounted(mount_dir)
+        
+        if err:
+            return "error", f"無法檢查掛載狀態: {err}"
+        
+        if not is_mounted:
+            # 檢查路徑是否存在且有 Windows 資料夾
+            if os.path.exists(mount_dir):
+                windows_path = os.path.join(mount_dir, "Windows")
+                if os.path.exists(windows_path):
+                    return "orphaned", "路徑存在 Windows 資料夾但未在 DISM 掛載清單中"
+                return "not_mounted", "路徑未掛載"
+            return "not_mounted", "路徑不存在"
+        
+        # 已掛載，檢查狀態
+        status = info.get("Status", "").lower() if info else ""
+        if "invalid" in status or "needs remount" in status:
+            return "needs_remount", f"掛載狀態異常: {info.get('Status', 'Unknown')}"
+        
+        return "mounted", f"已掛載 ({info.get('ReadWrite', 'Unknown')})"
+
     @staticmethod
     def smart_cleanup_and_fix() -> tuple[bool, str]:
         """
@@ -967,6 +1024,99 @@ class DriverManager:
         return False, err or out
 
     @staticmethod
+    def remove_driver_from_offline_image(mount_dir: str, driver_name: str) -> tuple[bool, str]:
+        """
+        從已掛載的映像中移除指定的驅動程式
+        
+        Args:
+            mount_dir: 映像掛載路徑
+            driver_name: 驅動程式名稱 (Published Name，如 oem0.inf)
+        
+        Returns:
+            (success, message)
+        """
+        m = DriverManager._norm_path(mount_dir)
+        
+        args = [
+            "/Remove-Driver",
+            f"/Image:{m}",
+            f"/Driver:{driver_name}"
+        ]
+        
+        rc, out, err = DriverManager._run_dism(args)
+        if rc == 0:
+            return True, f"驅動程式 {driver_name} 移除成功"
+        return False, err or out
+
+    @staticmethod
+    def remove_drivers_batch(mount_dir: str, driver_names: list[str], callback=None) -> tuple[int, int, list[str]]:
+        """
+        批量移除多個驅動程式
+        
+        Args:
+            mount_dir: 映像掛載路徑
+            driver_names: 驅動程式名稱列表
+            callback: 進度回調函數 callback(current, total, driver_name, success, message)
+        
+        Returns:
+            (success_count, fail_count, error_messages)
+        """
+        success_count = 0
+        fail_count = 0
+        errors = []
+        total = len(driver_names)
+        
+        for i, driver_name in enumerate(driver_names):
+            ok, msg = DriverManager.remove_driver_from_offline_image(mount_dir, driver_name)
+            if ok:
+                success_count += 1
+            else:
+                fail_count += 1
+                errors.append(f"{driver_name}: {msg}")
+            
+            if callback:
+                callback(i + 1, total, driver_name, ok, msg)
+        
+        return success_count, fail_count, errors
+
+    @staticmethod
+    def get_driver_details(mount_dir: str, driver_name: str) -> tuple[bool, dict, str]:
+        """
+        取得單一驅動程式的詳細資訊
+        
+        Args:
+            mount_dir: 映像掛載路徑
+            driver_name: 驅動程式名稱 (Published Name)
+        
+        Returns:
+            (success, driver_info_dict, error_message)
+        """
+        m = DriverManager._norm_path(mount_dir)
+        
+        args = [
+            "/Get-DriverInfo",
+            f"/Image:{m}",
+            f"/Driver:{driver_name}"
+        ]
+        
+        rc, out, err = DriverManager._run_dism(args)
+        if rc != 0:
+            return False, {}, err or out
+        
+        # 解析輸出
+        info = {"PublishedName": driver_name}
+        for line in out.splitlines():
+            line = line.strip()
+            if ":" in line:
+                key, _, value = line.partition(":")
+                key = key.strip().replace(" ", "")
+                value = value.strip()
+                if key and value:
+                    info[key] = value
+        
+        return True, info, ""
+
+    @staticmethod
     def get_driver_info_from_path(driver_path: str) -> tuple[bool, list[dict], str]:
         """
         取得指定路徑中的驅動程式資訊
@@ -1016,6 +1166,16 @@ class DriverManager:
         drivers: list[dict] = []
         cur: dict | None = None
         
+        # 欄位對應表：DISM 輸出欄位名稱 -> dict key
+        field_map = {
+            "Published Name": "PublishedName",
+            "Original File Name": "OriginalFileName",
+            "Class Name": "ClassName",
+            "Provider Name": "Provider",
+            "Date": "Date",
+            "Version": "Version",
+        }
+        
         for line in text.splitlines():
             line = line.strip()
             if not line:
@@ -1032,11 +1192,14 @@ class DriverManager:
                 continue
                 
             if cur is not None:
-                for field in ["OriginalFileName", "ClassName", "Provider", "Date", "Version"]:
-                    pattern = f"{field.replace('Name', ' Name')}\\s*:\\s*(.*)"
+                # 嘗試匹配各欄位
+                for dism_field, dict_key in field_map.items():
+                    if dict_key == "PublishedName":  # 已處理
+                        continue
+                    pattern = f"{re.escape(dism_field)}\\s*:\\s*(.*)"
                     match = re.search(pattern, line, re.IGNORECASE)
                     if match:
-                        cur[field] = match.group(1).strip()
+                        cur[dict_key] = match.group(1).strip()
                         break
                         
         if cur:
@@ -1185,6 +1348,15 @@ class App(tk.Tk):
         ttk.Radiobutton(unmount_options_frame, text="丟棄變更 (/Discard)", variable=self.var_unmount_commit, value=False, command=self._save_config).pack(side=tk.LEFT)
         ttk.Radiobutton(unmount_options_frame, text="提交變更 (/Commit)", variable=self.var_unmount_commit, value=True, command=self._save_config).pack(side=tk.LEFT, padx=(20, 0))
 
+        # 掛載狀態顯示
+        row4b = ttk.Frame(wim1_frame)
+        row4b.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(row4b, text="掛載狀態", width=12).pack(side=tk.LEFT)
+        self.var_mount_status1 = tk.StringVar(value="未檢查")
+        self.lbl_mount_status1 = ttk.Label(row4b, textvariable=self.var_mount_status1, foreground="gray")
+        self.lbl_mount_status1.pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(row4b, text="檢查狀態", command=self._on_check_wim1_status, width=10).pack(side=tk.LEFT, padx=(12, 0))
+
         # 行 5：動作按鈕
         row5 = ttk.Frame(wim1_frame)
         row5.pack(fill=tk.X, pady=(0, 5))
@@ -1192,8 +1364,10 @@ class App(tk.Tk):
         # WIM 操作按鈕組
         wim_action_frame = ttk.Frame(row5)
         wim_action_frame.pack(side=tk.LEFT)
-        ttk.Button(wim_action_frame, text="掛載 WIM", command=self._on_wim_mount, width=12).pack(side=tk.LEFT)
-        ttk.Button(wim_action_frame, text="卸載 WIM", command=self._on_wim_unmount, width=12).pack(side=tk.LEFT, padx=(8, 0))
+        self.btn_wim_mount1 = ttk.Button(wim_action_frame, text="掛載 WIM", command=self._on_wim_mount, width=12)
+        self.btn_wim_mount1.pack(side=tk.LEFT)
+        self.btn_wim_unmount1 = ttk.Button(wim_action_frame, text="卸載 WIM", command=self._on_wim_unmount, width=12)
+        self.btn_wim_unmount1.pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(wim_action_frame, text="關閉檔案總管", command=self._on_close_explorer).pack(side=tk.LEFT, padx=(8, 0))
         
         # 一鍵修復按鈕 - 整合所有診斷和修復功能
@@ -1293,6 +1467,8 @@ class App(tk.Tk):
         row3_2.pack(fill=tk.X, pady=(0, 10))
         ttk.Label(row3_2, text="掛載資料夾", width=12).pack(side=tk.LEFT)
         self.var_mount_dir2 = tk.StringVar()
+        # 監聽掛載路徑變更
+        self.var_mount_dir2.trace_add('write', self._on_mount_dir2_changed)
         ent_mdir2 = ttk.Entry(row3_2, textvariable=self.var_mount_dir2, width=40)
         ent_mdir2.pack(side=tk.LEFT, padx=(8, 6), fill=tk.X, expand=True)
         
@@ -1315,6 +1491,15 @@ class App(tk.Tk):
         ttk.Radiobutton(unmount2_options_frame, text="丟棄變更 (/Discard)", variable=self.var_unmount_commit2, value=False, command=self._save_config).pack(side=tk.LEFT)
         ttk.Radiobutton(unmount2_options_frame, text="提交變更 (/Commit)", variable=self.var_unmount_commit2, value=True, command=self._save_config).pack(side=tk.LEFT, padx=(20, 0))
 
+        # 掛載狀態顯示 #2
+        row4b_2 = ttk.Frame(wim2_frame)
+        row4b_2.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(row4b_2, text="掛載狀態", width=12).pack(side=tk.LEFT)
+        self.var_mount_status2 = tk.StringVar(value="未檢查")
+        self.lbl_mount_status2 = ttk.Label(row4b_2, textvariable=self.var_mount_status2, foreground="gray")
+        self.lbl_mount_status2.pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(row4b_2, text="檢查狀態", command=self._on_check_wim2_status, width=10).pack(side=tk.LEFT, padx=(12, 0))
+
         # 行 5：動作按鈕 #2
         row5_2 = ttk.Frame(wim2_frame)
         row5_2.pack(fill=tk.X, pady=(0, 5))
@@ -1322,8 +1507,10 @@ class App(tk.Tk):
         # WIM 操作按鈕組 #2
         wim2_action_frame = ttk.Frame(row5_2)
         wim2_action_frame.pack(side=tk.LEFT)
-        ttk.Button(wim2_action_frame, text="掛載 WIM", command=self._on_wim_mount2, width=12).pack(side=tk.LEFT)
-        ttk.Button(wim2_action_frame, text="卸載 WIM", command=self._on_wim_unmount2, width=12).pack(side=tk.LEFT, padx=(8, 0))
+        self.btn_wim_mount2 = ttk.Button(wim2_action_frame, text="掛載 WIM", command=self._on_wim_mount2, width=12)
+        self.btn_wim_mount2.pack(side=tk.LEFT)
+        self.btn_wim_unmount2 = ttk.Button(wim2_action_frame, text="卸載 WIM", command=self._on_wim_unmount2, width=12)
+        self.btn_wim_unmount2.pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(wim2_action_frame, text="關閉檔案總管", command=self._on_close_explorer2).pack(side=tk.LEFT, padx=(8, 0))
         
         # 一鍵修復按鈕 - 整合所有診斷和修復功能
@@ -1418,6 +1605,25 @@ class App(tk.Tk):
         commit2 = self._cfg_get('WIM2', 'unmount_commit')
         if commit2 is not None:
             self.var_unmount_commit2.set(commit2.lower() in ('1', 'true', 'yes', 'on'))
+        
+        # 初始化按鈕狀態（預設禁用卸載按鈕）
+        self._update_wim1_buttons(False)
+        self._update_wim2_buttons(False)
+        
+        # 延遲自動檢查掛載狀態（讓 UI 先完成載入）
+        self.after(1000, self._auto_check_mount_status)
+
+    def _auto_check_mount_status(self):
+        """自動檢查 WIM#1 和 WIM#2 的掛載狀態"""
+        # 檢查 WIM#1
+        mdir1 = self.var_mount_dir.get().strip()
+        if mdir1:
+            self._on_check_wim1_status()
+        
+        # 檢查 WIM#2
+        mdir2 = self.var_mount_dir2.get().strip()
+        if mdir2:
+            self._on_check_wim2_status()
 
     # Driver 管理分頁（使用子分頁：萃取和安裝）
     def _build_driver_tab(self, parent: tk.Misc):
@@ -1435,29 +1641,100 @@ class App(tk.Tk):
         driver_sub_notebook.add(install_frame, text="驅動安裝")
         self._build_install_subtab(install_frame)
 
+        # 子分頁 3：驅動程式清單管理
+        list_frame = ttk.Frame(driver_sub_notebook)
+        driver_sub_notebook.add(list_frame, text="驅動清單")
+        self._build_driver_list_subtab(list_frame)
+
         # 載入設定
         self._load_driver_config()
 
+    def _get_wim_options(self) -> list[tuple[str, str, str]]:
+        """
+        取得 WIM 映像選項列表
+        Returns: [(顯示文字, 掛載路徑, 狀態), ...]
+        """
+        options = []
+        
+        # WIM#1
+        mdir1 = self.var_mount_dir.get().strip() if hasattr(self, 'var_mount_dir') else ""
+        if mdir1:
+            is_mounted, _, _ = WIMManager.is_path_mounted(mdir1)
+            status = "✓ 已掛載" if is_mounted else "○ 未掛載"
+            options.append((f"WIM#1 - {mdir1} ({status})", mdir1, "mounted" if is_mounted else "not_mounted"))
+        else:
+            options.append(("WIM#1 - (未設定)", "", "not_set"))
+        
+        # WIM#2
+        mdir2 = self.var_mount_dir2.get().strip() if hasattr(self, 'var_mount_dir2') else ""
+        if mdir2:
+            is_mounted, _, _ = WIMManager.is_path_mounted(mdir2)
+            status = "✓ 已掛載" if is_mounted else "○ 未掛載"
+            options.append((f"WIM#2 - {mdir2} ({status})", mdir2, "mounted" if is_mounted else "not_mounted"))
+        else:
+            options.append(("WIM#2 - (未設定)", "", "not_set"))
+        
+        return options
+
+    def _update_wim_combobox(self, combobox: ttk.Combobox, status_var: tk.StringVar, status_label: ttk.Label):
+        """更新 WIM 下拉選單選項"""
+        options = self._get_wim_options()
+        values = [opt[0] for opt in options]
+        combobox['values'] = values
+        
+        # 更新狀態顯示
+        current_idx = combobox.current()
+        if current_idx >= 0 and current_idx < len(options):
+            _, path, status = options[current_idx]
+            self._update_wim_status_display(status_var, status_label, path, status)
+
+    def _update_wim_status_display(self, status_var: tk.StringVar, status_label: ttk.Label, path: str, status: str):
+        """更新掛載狀態顯示"""
+        if status == "mounted":
+            status_var.set("✓ 已掛載")
+            status_label.configure(foreground="green")
+        elif status == "not_mounted":
+            status_var.set("○ 未掛載")
+            status_label.configure(foreground="orange")
+        elif status == "not_set":
+            status_var.set("未設定")
+            status_label.configure(foreground="gray")
+        else:
+            status_var.set("未知")
+            status_label.configure(foreground="gray")
+
+    def _on_wim_combobox_selected(self, event, path_var: tk.StringVar, status_var: tk.StringVar, status_label: ttk.Label):
+        """當 WIM 下拉選單選擇變更時"""
+        combobox = event.widget
+        current_idx = combobox.current()
+        options = self._get_wim_options()
+        
+        if current_idx >= 0 and current_idx < len(options):
+            _, path, status = options[current_idx]
+            path_var.set(path)
+            self._update_wim_status_display(status_var, status_label, path, status)
+
     def _build_extract_subtab(self, parent: tk.Misc):
-        # 來源 WIM 檔案路徑
+        # 來源映像選擇（下拉選單）
         row1 = ttk.Frame(parent)
         row1.pack(fill=tk.X, pady=(8, 12), padx=8)
-        ttk.Label(row1, text="來源 WIM 檔案", width=12).pack(side=tk.LEFT)
-        self.var_extract_source = tk.StringVar()
-        ent_extract_source = ttk.Entry(row1, textvariable=self.var_extract_source, width=40)
-        ent_extract_source.pack(side=tk.LEFT, padx=(8, 6), fill=tk.X, expand=True)
+        ttk.Label(row1, text="來源映像", width=12).pack(side=tk.LEFT)
         
-        # 來源同步按鈕組
-        source_sync_frame = ttk.Frame(row1)
-        source_sync_frame.pack(side=tk.RIGHT)
-        ttk.Button(source_sync_frame, text="選擇…", command=self._on_browse_extract_source).pack(side=tk.LEFT)
-        ttk.Button(source_sync_frame, text="從 WIM#1", command=self._on_sync_extract_from_wim1).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(source_sync_frame, text="從 WIM#2", command=self._on_sync_extract_from_wim2).pack(side=tk.LEFT, padx=(6, 0))
+        # 下拉選單
+        self.var_extract_source = tk.StringVar()  # 儲存實際路徑
+        self.cbo_extract_source = ttk.Combobox(row1, width=45, state="readonly")
+        self.cbo_extract_source.pack(side=tk.LEFT, padx=(8, 6))
+        self.cbo_extract_source.bind('<<ComboboxSelected>>', self._on_extract_source_selected)
+        
+        # 狀態顯示
+        self.var_extract_status = tk.StringVar(value="未選擇")
+        self.lbl_extract_status = ttk.Label(row1, textvariable=self.var_extract_status, width=12)
+        self.lbl_extract_status.pack(side=tk.LEFT, padx=(8, 0))
 
         # 萃取輸出目錄
         row2 = ttk.Frame(parent)
         row2.pack(fill=tk.X, pady=(0, 12), padx=8)
-        ttk.Label(row2, text="驅動萃取目錄", width=12).pack(side=tk.LEFT)
+        ttk.Label(row2, text="萃取輸出目錄", width=12).pack(side=tk.LEFT)
         self.var_extract_output = tk.StringVar()
         ent_extract_output = ttk.Entry(row2, textvariable=self.var_extract_output, width=40)
         ent_extract_output.pack(side=tk.LEFT, padx=(8, 6), fill=tk.X, expand=True)
@@ -1474,25 +1751,49 @@ class App(tk.Tk):
         row3.pack(fill=tk.X, pady=(0, 8), padx=8)
         extract_action_frame = ttk.Frame(row3)
         extract_action_frame.pack(side=tk.LEFT)
-        ttk.Button(extract_action_frame, text="萃取驅動程式", command=self._on_extract_drivers, width=15).pack(side=tk.LEFT)
+        self.btn_extract_drivers = ttk.Button(extract_action_frame, text="萃取驅動程式", command=self._on_extract_drivers, width=15)
+        self.btn_extract_drivers.pack(side=tk.LEFT)
         ttk.Button(extract_action_frame, text="查看萃取結果", command=self._on_view_extracted_drivers).pack(side=tk.LEFT, padx=(10, 0))
 
+    def _on_extract_source_selected(self, event):
+        """萃取來源映像選擇變更"""
+        self._on_wim_combobox_selected(event, self.var_extract_source, self.var_extract_status, self.lbl_extract_status)
+        self._update_extract_button_state()
+
+    def _refresh_extract_wim_options(self):
+        """重新整理萃取來源的 WIM 選項"""
+        self._update_wim_combobox(self.cbo_extract_source, self.var_extract_status, self.lbl_extract_status)
+        self._update_extract_button_state()
+
+    def _update_extract_button_state(self):
+        """更新萃取按鈕狀態"""
+        options = self._get_wim_options()
+        current_idx = self.cbo_extract_source.current()
+        
+        if current_idx >= 0 and current_idx < len(options):
+            _, path, status = options[current_idx]
+            if status == "mounted" and path:
+                self.btn_extract_drivers.configure(state="normal")
+                return
+        
+        self.btn_extract_drivers.configure(state="disabled")
+
     def _build_install_subtab(self, parent: tk.Misc):
-        # 目標映像路徑
+        # 目標映像選擇（下拉選單）
         row1 = ttk.Frame(parent)
         row1.pack(fill=tk.X, pady=(8, 12), padx=8)
-        ttk.Label(row1, text="目標映像路徑", width=12).pack(side=tk.LEFT)
-        self.var_driver_mount_dir = tk.StringVar()
-        ent_driver_mount = ttk.Entry(row1, textvariable=self.var_driver_mount_dir, width=40)
-        ent_driver_mount.pack(side=tk.LEFT, padx=(8, 6), fill=tk.X, expand=True)
+        ttk.Label(row1, text="目標映像", width=12).pack(side=tk.LEFT)
         
-        # 目標同步按鈕組
-        target_sync_frame = ttk.Frame(row1)
-        target_sync_frame.pack(side=tk.RIGHT)
-        ttk.Button(target_sync_frame, text="選擇…", command=self._on_browse_driver_mount_dir).pack(side=tk.LEFT)
-        ttk.Button(target_sync_frame, text="從 WIM#1", command=self._on_sync_from_wim1).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(target_sync_frame, text="從 WIM#2", command=self._on_sync_from_wim2).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(target_sync_frame, text="檢查掛載", command=self._on_check_mount_status).pack(side=tk.LEFT, padx=(6, 0))
+        # 下拉選單
+        self.var_driver_mount_dir = tk.StringVar()  # 儲存實際路徑
+        self.cbo_install_target = ttk.Combobox(row1, width=45, state="readonly")
+        self.cbo_install_target.pack(side=tk.LEFT, padx=(8, 6))
+        self.cbo_install_target.bind('<<ComboboxSelected>>', self._on_install_target_selected)
+        
+        # 狀態顯示
+        self.var_install_status = tk.StringVar(value="未選擇")
+        self.lbl_install_status = ttk.Label(row1, textvariable=self.var_install_status, width=12)
+        self.lbl_install_status.pack(side=tk.LEFT, padx=(8, 0))
 
         # 驅動程式來源
         row2 = ttk.Frame(parent)
@@ -1521,7 +1822,7 @@ class App(tk.Tk):
         ttk.Checkbutton(options_frame, text="遞迴搜尋子資料夾 (/Recurse)", variable=self.var_driver_recurse, command=self._save_config).pack(side=tk.LEFT)
         
         self.var_driver_force_unsigned = tk.BooleanVar(value=False)
-        ttk.Checkbutton(options_frame, text="強制未簽署驱動 (/ForceUnsigned)", variable=self.var_driver_force_unsigned, command=self._save_config).pack(side=tk.LEFT, padx=(20, 0))
+        ttk.Checkbutton(options_frame, text="強制未簽署驅動 (/ForceUnsigned)", variable=self.var_driver_force_unsigned, command=self._save_config).pack(side=tk.LEFT, padx=(20, 0))
 
         # 安裝操作按鈕
         row4 = ttk.Frame(parent)
@@ -1530,21 +1831,153 @@ class App(tk.Tk):
         # 驅動操作按鈕組
         driver_action_frame = ttk.Frame(row4)
         driver_action_frame.pack(side=tk.LEFT)
-        ttk.Button(driver_action_frame, text="安裝驅動程式", command=self._on_install_driver, width=15).pack(side=tk.LEFT)
-        ttk.Button(driver_action_frame, text="列出已安裝驅動", command=self._on_list_drivers, width=15).pack(side=tk.LEFT, padx=(10, 0))
+        self.btn_install_driver = ttk.Button(driver_action_frame, text="安裝驅動程式", command=self._on_install_driver, width=15)
+        self.btn_install_driver.pack(side=tk.LEFT)
+        self.btn_list_drivers = ttk.Button(driver_action_frame, text="列出已安裝驅動", command=self._on_list_drivers, width=15)
+        self.btn_list_drivers.pack(side=tk.LEFT, padx=(10, 0))
+
+    def _on_install_target_selected(self, event):
+        """安裝目標映像選擇變更"""
+        self._on_wim_combobox_selected(event, self.var_driver_mount_dir, self.var_install_status, self.lbl_install_status)
+        self._update_install_button_state()
+
+    def _refresh_install_wim_options(self):
+        """重新整理安裝目標的 WIM 選項"""
+        self._update_wim_combobox(self.cbo_install_target, self.var_install_status, self.lbl_install_status)
+        self._update_install_button_state()
+
+    def _update_install_button_state(self):
+        """更新安裝按鈕狀態"""
+        options = self._get_wim_options()
+        current_idx = self.cbo_install_target.current()
+        
+        if current_idx >= 0 and current_idx < len(options):
+            _, path, status = options[current_idx]
+            if status == "mounted" and path:
+                self.btn_install_driver.configure(state="normal")
+                self.btn_list_drivers.configure(state="normal")
+                return
+        
+        self.btn_install_driver.configure(state="disabled")
+        self.btn_list_drivers.configure(state="disabled")
+
+    def _build_driver_list_subtab(self, parent: tk.Misc):
+        """建立驅動清單管理子分頁"""
+        # 目標映像選擇（下拉選單）
+        row1 = ttk.Frame(parent)
+        row1.pack(fill=tk.X, pady=(8, 8), padx=8)
+        ttk.Label(row1, text="目標映像", width=12).pack(side=tk.LEFT)
+        
+        # 下拉選單
+        self.var_driver_list_mount_dir = tk.StringVar()  # 儲存實際路徑
+        self.cbo_list_target = ttk.Combobox(row1, width=45, state="readonly")
+        self.cbo_list_target.pack(side=tk.LEFT, padx=(8, 6))
+        self.cbo_list_target.bind('<<ComboboxSelected>>', self._on_list_target_selected)
+        
+        # 狀態顯示
+        self.var_list_status = tk.StringVar(value="未選擇")
+        self.lbl_list_status = ttk.Label(row1, textvariable=self.var_list_status, width=12)
+        self.lbl_list_status.pack(side=tk.LEFT, padx=(8, 0))
+
+        # 驅動清單 Treeview
+        tree_frame = ttk.Frame(parent)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        
+        # 建立 Treeview 與滾動條
+        columns = ("name", "provider", "version", "date", "class")
+        self.driver_tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="extended")
+        
+        # 設定欄位標題
+        self.driver_tree.heading("name", text="驅動名稱", command=lambda: self._sort_driver_tree("name"))
+        self.driver_tree.heading("provider", text="提供者", command=lambda: self._sort_driver_tree("provider"))
+        self.driver_tree.heading("version", text="版本", command=lambda: self._sort_driver_tree("version"))
+        self.driver_tree.heading("date", text="日期", command=lambda: self._sort_driver_tree("date"))
+        self.driver_tree.heading("class", text="類型", command=lambda: self._sort_driver_tree("class"))
+        
+        # 設定欄位寬度
+        self.driver_tree.column("name", width=120, minwidth=80)
+        self.driver_tree.column("provider", width=150, minwidth=100)
+        self.driver_tree.column("version", width=100, minwidth=80)
+        self.driver_tree.column("date", width=100, minwidth=80)
+        self.driver_tree.column("class", width=100, minwidth=80)
+        
+        # 滾動條
+        tree_scroll_y = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.driver_tree.yview)
+        tree_scroll_x = ttk.Scrollbar(tree_frame, orient=tk.HORIZONTAL, command=self.driver_tree.xview)
+        self.driver_tree.configure(yscrollcommand=tree_scroll_y.set, xscrollcommand=tree_scroll_x.set)
+        
+        # 佈局
+        self.driver_tree.grid(row=0, column=0, sticky="nsew")
+        tree_scroll_y.grid(row=0, column=1, sticky="ns")
+        tree_scroll_x.grid(row=1, column=0, sticky="ew")
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
+        
+        # 狀態列
+        status_frame = ttk.Frame(parent)
+        status_frame.pack(fill=tk.X, padx=8, pady=(0, 4))
+        self.var_driver_list_status = tk.StringVar(value="尚未載入驅動清單")
+        ttk.Label(status_frame, textvariable=self.var_driver_list_status, foreground="gray").pack(side=tk.LEFT)
+        
+        # 操作按鈕
+        btn_frame = ttk.Frame(parent)
+        btn_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
+        
+        # 左側按鈕組
+        left_btn_frame = ttk.Frame(btn_frame)
+        left_btn_frame.pack(side=tk.LEFT)
+        self.btn_refresh_list = ttk.Button(left_btn_frame, text="重新整理", command=self._on_refresh_driver_list, width=12)
+        self.btn_refresh_list.pack(side=tk.LEFT)
+        ttk.Button(left_btn_frame, text="全選", command=self._on_select_all_drivers, width=8).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(left_btn_frame, text="取消全選", command=self._on_deselect_all_drivers, width=10).pack(side=tk.LEFT, padx=(4, 0))
+        
+        # 右側按鈕組
+        right_btn_frame = ttk.Frame(btn_frame)
+        right_btn_frame.pack(side=tk.RIGHT)
+        ttk.Button(right_btn_frame, text="查看詳情", command=self._on_view_driver_details, width=10).pack(side=tk.LEFT)
+        self.btn_remove_drivers = ttk.Button(right_btn_frame, text="移除選定", command=self._on_remove_selected_drivers, width=10)
+        self.btn_remove_drivers.pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(right_btn_frame, text="匯出清單", command=self._on_export_driver_list, width=10).pack(side=tk.LEFT, padx=(8, 0))
+        
+        # 初始化排序狀態
+        self._driver_tree_sort_col = None
+        self._driver_tree_sort_reverse = False
+
+    def _on_list_target_selected(self, event):
+        """驅動清單目標映像選擇變更"""
+        self._on_wim_combobox_selected(event, self.var_driver_list_mount_dir, self.var_list_status, self.lbl_list_status)
+        self._update_list_button_state()
+        # 自動載入驅動清單
+        options = self._get_wim_options()
+        current_idx = self.cbo_list_target.current()
+        if current_idx >= 0 and current_idx < len(options):
+            _, path, status = options[current_idx]
+            if status == "mounted" and path:
+                self._on_refresh_driver_list()
+
+    def _refresh_list_wim_options(self):
+        """重新整理驅動清單的 WIM 選項"""
+        self._update_wim_combobox(self.cbo_list_target, self.var_list_status, self.lbl_list_status)
+        self._update_list_button_state()
+
+    def _update_list_button_state(self):
+        """更新驅動清單按鈕狀態"""
+        options = self._get_wim_options()
+        current_idx = self.cbo_list_target.current()
+        
+        if current_idx >= 0 and current_idx < len(options):
+            _, path, status = options[current_idx]
+            if status == "mounted" and path:
+                self.btn_refresh_list.configure(state="normal")
+                self.btn_remove_drivers.configure(state="normal")
+                return
+        
+        self.btn_refresh_list.configure(state="disabled")
+        self.btn_remove_drivers.configure(state="disabled")
 
     def _load_driver_config(self):
         """載入驅動程式相關設定"""
         # 載入安裝設定
-        driver_mount = self._cfg_get('DRIVER', 'mount_dir')
-        if driver_mount:
-            self.var_driver_mount_dir.set(driver_mount)
-        else:
-            # 如果沒有設定且 WIM 路徑已設定，則自動同步
-            wim_mount = self._cfg_get('WIM', 'mount_dir')
-            if wim_mount:
-                self.var_driver_mount_dir.set(wim_mount)
-                
         driver_source = self._cfg_get('DRIVER', 'source_path')
         if driver_source:
             self.var_driver_source.set(driver_source)
@@ -1556,13 +1989,111 @@ class App(tk.Tk):
             self.var_driver_force_unsigned.set(force_unsigned.lower() in ('1', 'true', 'yes', 'on'))
         
         # 載入萃取設定
-        extract_source = self._cfg_get('EXTRACT', 'source_path')
-        if extract_source:
-            self.var_extract_source.set(extract_source)
-        
         extract_output = self._cfg_get('EXTRACT', 'output_path') 
         if extract_output:
             self.var_extract_output.set(extract_output)
+
+        # 初始化所有下拉選單
+        self._init_driver_comboboxes()
+
+    def _init_driver_comboboxes(self):
+        """初始化 Driver 分頁的下拉選單"""
+        # 延遲執行以確保 WIM 設定已載入
+        self.after(500, self._do_init_driver_comboboxes)
+
+    def _do_init_driver_comboboxes(self):
+        """實際初始化下拉選單"""
+        options = self._get_wim_options()
+        values = [opt[0] for opt in options]
+        
+        # 初始化萃取來源下拉選單
+        if hasattr(self, 'cbo_extract_source'):
+            self.cbo_extract_source['values'] = values
+            # 預設選擇第一個已掛載的映像
+            for i, (_, path, status) in enumerate(options):
+                if status == "mounted":
+                    self.cbo_extract_source.current(i)
+                    self.var_extract_source.set(path)
+                    self._update_wim_status_display(self.var_extract_status, self.lbl_extract_status, path, status)
+                    break
+            else:
+                # 沒有已掛載的，選擇第一個
+                if values:
+                    self.cbo_extract_source.current(0)
+                    self._on_extract_source_selected(type('Event', (), {'widget': self.cbo_extract_source})())
+            self._update_extract_button_state()
+        
+        # 初始化安裝目標下拉選單
+        if hasattr(self, 'cbo_install_target'):
+            self.cbo_install_target['values'] = values
+            for i, (_, path, status) in enumerate(options):
+                if status == "mounted":
+                    self.cbo_install_target.current(i)
+                    self.var_driver_mount_dir.set(path)
+                    self._update_wim_status_display(self.var_install_status, self.lbl_install_status, path, status)
+                    break
+            else:
+                if values:
+                    self.cbo_install_target.current(0)
+                    self._on_install_target_selected(type('Event', (), {'widget': self.cbo_install_target})())
+            self._update_install_button_state()
+        
+        # 初始化驅動清單目標下拉選單
+        if hasattr(self, 'cbo_list_target'):
+            self.cbo_list_target['values'] = values
+            for i, (_, path, status) in enumerate(options):
+                if status == "mounted":
+                    self.cbo_list_target.current(i)
+                    self.var_driver_list_mount_dir.set(path)
+                    self._update_wim_status_display(self.var_list_status, self.lbl_list_status, path, status)
+                    break
+            else:
+                if values:
+                    self.cbo_list_target.current(0)
+                    self._on_list_target_selected(type('Event', (), {'widget': self.cbo_list_target})())
+            self._update_list_button_state()
+
+    def _refresh_all_driver_comboboxes(self):
+        """重新整理所有 Driver 下拉選單並自動選擇已掛載的映像"""
+        options = self._get_wim_options()
+        values = [opt[0] for opt in options]
+        
+        # 找出第一個已掛載的映像索引
+        mounted_idx = -1
+        for i, (_, path, status) in enumerate(options):
+            if status == "mounted" and path:
+                mounted_idx = i
+                break
+        
+        # 更新萃取來源下拉選單
+        if hasattr(self, 'cbo_extract_source'):
+            self.cbo_extract_source['values'] = values
+            if mounted_idx >= 0:
+                self.cbo_extract_source.current(mounted_idx)
+                _, path, status = options[mounted_idx]
+                self.var_extract_source.set(path)
+                self._update_wim_status_display(self.var_extract_status, self.lbl_extract_status, path, status)
+            self._update_extract_button_state()
+        
+        # 更新安裝目標下拉選單
+        if hasattr(self, 'cbo_install_target'):
+            self.cbo_install_target['values'] = values
+            if mounted_idx >= 0:
+                self.cbo_install_target.current(mounted_idx)
+                _, path, status = options[mounted_idx]
+                self.var_driver_mount_dir.set(path)
+                self._update_wim_status_display(self.var_install_status, self.lbl_install_status, path, status)
+            self._update_install_button_state()
+        
+        # 更新驅動清單目標下拉選單
+        if hasattr(self, 'cbo_list_target'):
+            self.cbo_list_target['values'] = values
+            if mounted_idx >= 0:
+                self.cbo_list_target.current(mounted_idx)
+                _, path, status = options[mounted_idx]
+                self.var_driver_list_mount_dir.set(path)
+                self._update_wim_status_display(self.var_list_status, self.lbl_list_status, path, status)
+            self._update_list_button_state()
 
     # 工具方法
     def _log(self, msg: str):
@@ -1658,7 +2189,7 @@ class App(tk.Tk):
         t.start()
 
     def _on_mount_dir_changed(self, *args):
-        """當 WIM 掛載路徑變更時自動同步到 Driver 分頁"""
+        """當 WIM 掛載路徑變更時自動同步到 Driver 分頁並檢查狀態"""
         if hasattr(self, 'var_driver_mount_dir') and hasattr(self, 'var_mount_dir'):
             wim_path = self.var_mount_dir.get().strip()
             current_driver_path = self.var_driver_mount_dir.get().strip()
@@ -1667,6 +2198,18 @@ class App(tk.Tk):
             if wim_path and (not current_driver_path or current_driver_path != wim_path):
                 self.var_driver_mount_dir.set(wim_path)
                 self._log(f"自動同步掛載路徑到 Driver 分頁: {wim_path}")
+        
+        # 當路徑變更時，延遲檢查掛載狀態（避免頻繁檢查）
+        if hasattr(self, '_mount_check_timer1'):
+            self.after_cancel(self._mount_check_timer1)
+        self._mount_check_timer1 = self.after(500, self._on_check_wim1_status)
+
+    def _on_mount_dir2_changed(self, *args):
+        """當 WIM#2 掛載路徑變更時檢查狀態"""
+        # 當路徑變更時，延遲檢查掛載狀態（避免頻繁檢查）
+        if hasattr(self, '_mount_check_timer2'):
+            self.after_cancel(self._mount_check_timer2)
+        self._mount_check_timer2 = self.after(500, self._on_check_wim2_status)
 
     def _elevate_and_exit(self):
         """自動提升權限並退出當前程序（靜默執行）"""
@@ -2045,6 +2588,9 @@ class App(tk.Tk):
                 messagebox.showerror("掛載失敗", f"掛載失敗:\n{msg}")
                 # 為掛載錯誤提供詳細建議
                 self.after(100, lambda: self.show_error_with_advice("掛載失敗", msg))
+        
+        # 更新掛載狀態
+        self.after(500, self._on_check_wim1_status)
 
     def _on_wim_unmount(self):
         mdir = self.var_mount_dir.get().strip()
@@ -2054,10 +2600,117 @@ class App(tk.Tk):
             self._log("卸載失敗：未指定掛載資料夾")
             messagebox.showwarning("輸入不完整", "請先指定掛載資料夾")
             return
+        
+        # 檢查是否已掛載
+        is_mounted, mount_info, err = WIMManager.is_path_mounted(mdir)
+        if err:
+            self._log(f"⚠ 無法確認掛載狀態: {err}")
+        elif not is_mounted:
+            result = messagebox.askyesno(
+                "未檢測到掛載", 
+                f"路徑 '{mdir}' 未在 DISM 掛載清單中。\n\n"
+                "可能原因：\n"
+                "• 映像尚未掛載\n"
+                "• 掛載狀態異常\n\n"
+                "是否仍要嘗試卸載？（可能需要使用「一鍵修復」功能）",
+                icon='warning'
+            )
+            if not result:
+                return
             
         commit_text = "提交變更" if commit else "丟棄變更"
         self._log(f"準備卸載 WIM (模式: {commit_text})...")
         self._thread(self._do_wim_unmount, mdir, commit)
+
+    def _on_check_wim1_status(self):
+        """檢查 WIM#1 的掛載狀態"""
+        mdir = self.var_mount_dir.get().strip()
+        if not mdir:
+            self.var_mount_status1.set("未設定掛載路徑")
+            self.lbl_mount_status1.configure(foreground="gray")
+            self._update_wim1_buttons(False)
+            return
+        
+        self._thread(self._do_check_wim1_status, mdir)
+
+    def _do_check_wim1_status(self, mdir: str):
+        """實際檢查 WIM#1 狀態"""
+        status, details = WIMManager.get_mount_status_for_path(mdir)
+        
+        # 在主執行緒更新 UI
+        self.after(0, lambda: self._update_wim1_status_ui(status, details))
+
+    def _update_wim1_status_ui(self, status: str, details: str):
+        """更新 WIM#1 狀態 UI"""
+        status_map = {
+            "mounted": ("✓ 已掛載", "green", True),
+            "not_mounted": ("○ 未掛載", "gray", False),
+            "needs_remount": ("⚠ 需要修復", "orange", True),
+            "orphaned": ("⚠ 狀態異常", "orange", False),
+            "error": ("✗ 檢查失敗", "red", False),
+        }
+        
+        text, color, is_mounted = status_map.get(status, ("未知", "gray", False))
+        self.var_mount_status1.set(f"{text} - {details}")
+        self.lbl_mount_status1.configure(foreground=color)
+        self._update_wim1_buttons(is_mounted)
+        
+        # 當掛載狀態改變時，同步更新驅動分頁的下拉選單
+        self._refresh_all_driver_comboboxes()
+
+    def _update_wim1_buttons(self, is_mounted: bool):
+        """根據掛載狀態更新 WIM#1 按鈕狀態"""
+        if is_mounted:
+            self.btn_wim_mount1.configure(state="disabled")
+            self.btn_wim_unmount1.configure(state="normal")
+        else:
+            self.btn_wim_mount1.configure(state="normal")
+            self.btn_wim_unmount1.configure(state="disabled")
+
+    def _on_check_wim2_status(self):
+        """檢查 WIM#2 的掛載狀態"""
+        mdir = self.var_mount_dir2.get().strip()
+        if not mdir:
+            self.var_mount_status2.set("未設定掛載路徑")
+            self.lbl_mount_status2.configure(foreground="gray")
+            self._update_wim2_buttons(False)
+            return
+        
+        self._thread(self._do_check_wim2_status, mdir)
+
+    def _do_check_wim2_status(self, mdir: str):
+        """實際檢查 WIM#2 狀態"""
+        status, details = WIMManager.get_mount_status_for_path(mdir)
+        
+        # 在主執行緒更新 UI
+        self.after(0, lambda: self._update_wim2_status_ui(status, details))
+
+    def _update_wim2_status_ui(self, status: str, details: str):
+        """更新 WIM#2 狀態 UI"""
+        status_map = {
+            "mounted": ("✓ 已掛載", "green", True),
+            "not_mounted": ("○ 未掛載", "gray", False),
+            "needs_remount": ("⚠ 需要修復", "orange", True),
+            "orphaned": ("⚠ 狀態異常", "orange", False),
+            "error": ("✗ 檢查失敗", "red", False),
+        }
+        
+        text, color, is_mounted = status_map.get(status, ("未知", "gray", False))
+        self.var_mount_status2.set(f"{text} - {details}")
+        self.lbl_mount_status2.configure(foreground=color)
+        self._update_wim2_buttons(is_mounted)
+        
+        # 當掛載狀態改變時，同步更新驅動分頁的下拉選單
+        self._refresh_all_driver_comboboxes()
+
+    def _update_wim2_buttons(self, is_mounted: bool):
+        """根據掛載狀態更新 WIM#2 按鈕狀態"""
+        if is_mounted:
+            self.btn_wim_mount2.configure(state="disabled")
+            self.btn_wim_unmount2.configure(state="normal")
+        else:
+            self.btn_wim_mount2.configure(state="normal")
+            self.btn_wim_unmount2.configure(state="disabled")
 
     def _on_close_explorer(self):
         """手動關閉指向掛載資料夾的檔案總管視窗"""
@@ -2553,6 +3206,8 @@ class App(tk.Tk):
             self._log("✓ 第二個 WIM 掛載成功！")
             self._log(f"掛載位置: {mdir}")
             messagebox.showinfo("掛載成功", f"第二個 WIM 已成功掛載到:\n{mdir}")
+            # 更新掛載狀態
+            self.after(500, self._on_check_wim2_status)
         else:
             self._log(f"✗ 第二個 WIM 掛載失敗: {msg}")
             
@@ -2586,6 +3241,23 @@ class App(tk.Tk):
             self._log("第二個卸載失敗：未指定掛載資料夾")
             messagebox.showwarning("輸入不完整", "請先指定第二個掛載資料夾")
             return
+        
+        # 檢查是否已掛載
+        is_mounted, mount_info, err = WIMManager.is_path_mounted(mdir)
+        if err:
+            self._log(f"⚠ 無法確認掛載狀態: {err}")
+        elif not is_mounted:
+            result = messagebox.askyesno(
+                "未檢測到掛載", 
+                f"路徑 '{mdir}' 未在 DISM 掛載清單中。\n\n"
+                "可能原因：\n"
+                "• 映像尚未掛載\n"
+                "• 掛載狀態異常\n\n"
+                "是否仍要嘗試卸載？（可能需要使用「一鍵修復」功能）",
+                icon='warning'
+            )
+            if not result:
+                return
             
         commit_text = "提交變更" if commit else "丟棄變更"
         self._log(f"準備卸載第二個 WIM (模式: {commit_text})...")
@@ -2618,6 +3290,8 @@ class App(tk.Tk):
         if ok:
             self._log("✓ 第二個 WIM 卸載成功！")
             messagebox.showinfo("卸載成功", f"第二個 WIM 已成功卸載\n模式: {commit_text}")
+            # 更新掛載狀態
+            self.after(500, self._on_check_wim2_status)
         else:
             self._log(f"✗ 第二個 WIM 卸載失敗: {msg}")
             if "is currently in use" in msg or "正在使用" in msg or "檔案正在使用中" in msg:
@@ -2715,6 +3389,8 @@ class App(tk.Tk):
         if ok:
             self._log("✓ WIM 卸載成功！")
             messagebox.showinfo("卸載成功", f"WIM 已成功卸載\n模式: {commit_text}")
+            # 更新掛載狀態
+            self.after(500, self._on_check_wim1_status)
         else:
             self._log(f"✗ WIM 卸載失敗: {msg}")
             if "is currently in use" in msg or "正在使用" in msg or "檔案正在使用中" in msg:
@@ -2891,6 +3567,21 @@ class App(tk.Tk):
         if not os.path.exists(driver_source):
             messagebox.showerror("路徑錯誤", "驅動程式路徑不存在")
             return
+        
+        # 檢查是否已掛載
+        is_mounted, mount_info, err = WIMManager.is_path_mounted(mount_dir)
+        if err:
+            self._log(f"⚠ 無法確認掛載狀態: {err}")
+        elif not is_mounted:
+            result = messagebox.askyesno(
+                "未檢測到掛載", 
+                f"路徑 '{mount_dir}' 未在 DISM 掛載清單中。\n\n"
+                "驅動程式安裝需要已掛載的離線映像。\n\n"
+                "是否仍要嘗試安裝？",
+                icon='warning'
+            )
+            if not result:
+                return
             
         self._log("開始安裝驅動程式...")
         self._save_config()
@@ -3108,6 +3799,366 @@ class App(tk.Tk):
             self._log(f"✗ 掃描失敗: {msg}")
             messagebox.showerror("掃描失敗", f"掃描驅動程式失敗:\n{msg}")
 
+    # ---------- 驅動清單事件 ----------
+    
+    def _on_browse_driver_list_mount_dir(self):
+        """選擇驅動清單的目標映像路徑"""
+        path = filedialog.askdirectory(title="選擇映像掛載目錄")
+        if path:
+            self.var_driver_list_mount_dir.set(path)
+            self._log(f"已選擇映像掛載目錄：{path}")
+            # 自動載入驅動清單
+            self._on_refresh_driver_list()
+
+    def _on_sync_list_from_wim1(self):
+        """從 WIM#1 同步目標映像路徑"""
+        if not hasattr(self, 'var_mount_dir'):
+            messagebox.showwarning("同步失敗", "找不到 WIM#1 分頁的掛載路徑")
+            return
+        wim_mount_dir = self.var_mount_dir.get().strip()
+        if not wim_mount_dir:
+            messagebox.showwarning("同步失敗", "WIM#1 分頁的掛載路徑為空")
+            return
+        self.var_driver_list_mount_dir.set(wim_mount_dir)
+        self._log(f"✓ 已同步目標映像路徑（WIM#1）：{wim_mount_dir}")
+        # 自動載入驅動清單
+        self._on_refresh_driver_list()
+
+    def _on_sync_list_from_wim2(self):
+        """從 WIM#2 同步目標映像路徑"""
+        if not hasattr(self, 'var_mount_dir2'):
+            messagebox.showwarning("同步失敗", "找不到 WIM#2 分頁的掛載路徑")
+            return
+        wim_mount_dir = self.var_mount_dir2.get().strip()
+        if not wim_mount_dir:
+            messagebox.showwarning("同步失敗", "WIM#2 分頁的掛載路徑為空")
+            return
+        self.var_driver_list_mount_dir.set(wim_mount_dir)
+        self._log(f"✓ 已同步目標映像路徑（WIM#2）：{wim_mount_dir}")
+        # 自動載入驅動清單
+        self._on_refresh_driver_list()
+
+    def _on_refresh_driver_list(self):
+        """重新整理驅動清單"""
+        mount_dir = self.var_driver_list_mount_dir.get().strip()
+        if not mount_dir:
+            messagebox.showwarning("輸入不完整", "請先輸入或選擇映像掛載路徑")
+            return
+        if not os.path.exists(mount_dir):
+            messagebox.showerror("路徑錯誤", "映像掛載路徑不存在")
+            return
+        
+        self._log("開始載入驅動清單...")
+        self.var_driver_list_status.set("正在載入...")
+        self._thread(self._do_refresh_driver_list, mount_dir)
+
+    def _do_refresh_driver_list(self, mount_dir: str):
+        """實際執行驅動清單載入"""
+        ok, drivers, err = DriverManager.get_drivers_in_offline_image(mount_dir)
+        
+        # 在主執行緒更新 UI
+        self.after(0, lambda: self._update_driver_tree(ok, drivers, err))
+
+    def _update_driver_tree(self, ok: bool, drivers: list[dict], err: str):
+        """更新驅動清單 Treeview"""
+        # 清空現有項目
+        for item in self.driver_tree.get_children():
+            self.driver_tree.delete(item)
+        
+        # 清空 PublishedName 對照表
+        self._driver_published_names = {}
+        
+        if not ok:
+            self._log(f"✗ 載入驅動清單失敗: {err}")
+            self.var_driver_list_status.set(f"載入失敗: {err}")
+            messagebox.showerror("載入失敗", f"無法載入驅動清單:\n{err}")
+            return
+        
+        if not drivers:
+            self._log("映像中沒有安裝任何驅動程式")
+            self.var_driver_list_status.set("沒有找到任何驅動程式")
+            return
+        
+        # 填充資料
+        for driver in drivers:
+            published_name = driver.get('PublishedName', 'N/A')
+            original_name = driver.get('OriginalFileName', '')
+            provider = driver.get('Provider', 'N/A')
+            version = driver.get('Version', 'N/A')
+            date = driver.get('Date', 'N/A')
+            class_name = driver.get('ClassName', 'N/A')
+            
+            # 顯示名稱：原始檔名 (oemX.inf) 或 僅 oemX.inf
+            if original_name and original_name != published_name:
+                display_name = f"{original_name} ({published_name})"
+            else:
+                display_name = published_name
+            
+            # 使用 PublishedName 作為 item id，方便後續操作
+            item_id = self.driver_tree.insert("", tk.END, values=(display_name, provider, version, date, class_name))
+            # 儲存 item_id 與 PublishedName 的對照
+            self._driver_published_names[item_id] = published_name
+        
+        count = len(drivers)
+        self._log(f"✓ 已載入 {count} 個驅動程式")
+        self.var_driver_list_status.set(f"共 {count} 個驅動程式")
+
+    def _sort_driver_tree(self, col: str):
+        """排序驅動清單"""
+        # 切換排序方向
+        if self._driver_tree_sort_col == col:
+            self._driver_tree_sort_reverse = not self._driver_tree_sort_reverse
+        else:
+            self._driver_tree_sort_col = col
+            self._driver_tree_sort_reverse = False
+        
+        # 取得所有項目
+        items = [(self.driver_tree.set(item, col), item) for item in self.driver_tree.get_children("")]
+        
+        # 排序
+        items.sort(reverse=self._driver_tree_sort_reverse)
+        
+        # 重新排列
+        for index, (_, item) in enumerate(items):
+            self.driver_tree.move(item, "", index)
+
+    def _on_select_all_drivers(self):
+        """全選驅動"""
+        for item in self.driver_tree.get_children():
+            self.driver_tree.selection_add(item)
+        count = len(self.driver_tree.selection())
+        self.var_driver_list_status.set(f"已選取 {count} 個驅動程式")
+
+    def _on_deselect_all_drivers(self):
+        """取消全選"""
+        self.driver_tree.selection_remove(self.driver_tree.selection())
+        self.var_driver_list_status.set(f"共 {len(self.driver_tree.get_children())} 個驅動程式")
+
+    def _on_view_driver_details(self):
+        """查看選定驅動的詳細資訊"""
+        selected = self.driver_tree.selection()
+        if not selected:
+            messagebox.showwarning("未選取", "請先選取一個驅動程式")
+            return
+        
+        # 只取第一個選取的項目
+        item = selected[0]
+        
+        # 從對照表取得真正的 PublishedName
+        if hasattr(self, '_driver_published_names') and item in self._driver_published_names:
+            driver_name = self._driver_published_names[item]
+        else:
+            # 嘗試從顯示名稱中提取 (oemX.inf)
+            display_name = self.driver_tree.item(item, 'values')[0]
+            import re
+            match = re.search(r'\(([^)]+\.inf)\)', display_name)
+            driver_name = match.group(1) if match else display_name
+        
+        mount_dir = self.var_driver_list_mount_dir.get().strip()
+        if not mount_dir:
+            messagebox.showwarning("路徑錯誤", "請先設定映像掛載路徑")
+            return
+        
+        self._log(f"正在查詢驅動程式詳情: {driver_name}")
+        self._thread(self._do_view_driver_details, mount_dir, driver_name)
+
+    def _do_view_driver_details(self, mount_dir: str, driver_name: str):
+        """實際執行驅動詳情查詢"""
+        ok, info, err = DriverManager.get_driver_details(mount_dir, driver_name)
+        
+        if not ok:
+            self._log(f"✗ 查詢驅動詳情失敗: {err}")
+            self.after(0, lambda: messagebox.showerror("查詢失敗", f"無法查詢驅動詳情:\n{err}"))
+            return
+        
+        # 格式化詳情
+        details = f"驅動程式詳細資訊\n{'='*40}\n\n"
+        for key, value in info.items():
+            # 格式化 key
+            display_key = key
+            if key == "PublishedName":
+                display_key = "發佈名稱"
+            elif key == "OriginalFileName":
+                display_key = "原始檔名"
+            elif key == "Inbox":
+                display_key = "內建驅動"
+            elif key == "ClassName":
+                display_key = "類型"
+            elif key == "Provider":
+                display_key = "提供者"
+            elif key == "Date":
+                display_key = "日期"
+            elif key == "Version":
+                display_key = "版本"
+            details += f"{display_key}: {value}\n"
+        
+        self._log(f"驅動程式 {driver_name} 詳情:\n{details}")
+        self.after(0, lambda: self._show_driver_details_dialog(driver_name, details))
+
+    def _show_driver_details_dialog(self, driver_name: str, details: str):
+        """顯示驅動詳情對話框"""
+        dialog = tk.Toplevel(self)
+        dialog.title(f"驅動程式詳情 - {driver_name}")
+        dialog.geometry("500x400")
+        dialog.resizable(True, True)
+        dialog.grab_set()
+        
+        # 文字框
+        text_frame = ttk.Frame(dialog)
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        text_widget = tk.Text(text_frame, wrap=tk.WORD, font=("Consolas", 10))
+        scrollbar = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=text_widget.yview)
+        text_widget.configure(yscrollcommand=scrollbar.set)
+        
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        text_widget.insert("1.0", details)
+        text_widget.configure(state="disabled")
+        
+        # 關閉按鈕
+        ttk.Button(dialog, text="關閉", command=dialog.destroy).pack(pady=(0, 10))
+        
+        # 居中
+        dialog.transient(self)
+        dialog.update_idletasks()
+        x = (dialog.winfo_screenwidth() // 2) - (500 // 2)
+        y = (dialog.winfo_screenheight() // 2) - (400 // 2)
+        dialog.geometry(f"500x400+{x}+{y}")
+
+    def _on_remove_selected_drivers(self):
+        """移除選定的驅動程式"""
+        selected = self.driver_tree.selection()
+        if not selected:
+            messagebox.showwarning("未選取", "請先選取要移除的驅動程式")
+            return
+        
+        mount_dir = self.var_driver_list_mount_dir.get().strip()
+        if not mount_dir:
+            messagebox.showwarning("路徑錯誤", "請先設定映像掛載路徑")
+            return
+        
+        # 檢查是否已掛載
+        is_mounted, mount_info, err = WIMManager.is_path_mounted(mount_dir)
+        if err:
+            self._log(f"⚠ 無法確認掛載狀態: {err}")
+        elif not is_mounted:
+            result = messagebox.askyesno(
+                "未檢測到掛載", 
+                f"路徑 '{mount_dir}' 未在 DISM 掛載清單中。\n\n"
+                "驅動程式移除需要已掛載的離線映像。\n\n"
+                "是否仍要嘗試移除？",
+                icon='warning'
+            )
+            if not result:
+                return
+        
+        # 取得選取的驅動名稱（使用對照表取得真正的 PublishedName）
+        driver_names = []
+        display_names = []  # 用於顯示
+        for item in selected:
+            if hasattr(self, '_driver_published_names') and item in self._driver_published_names:
+                driver_names.append(self._driver_published_names[item])
+            else:
+                # 嘗試從顯示名稱中提取 (oemX.inf)
+                display_name = self.driver_tree.item(item, 'values')[0]
+                import re
+                match = re.search(r'\(([^)]+\.inf)\)', display_name)
+                driver_names.append(match.group(1) if match else display_name)
+            display_names.append(self.driver_tree.item(item, 'values')[0])
+        
+        # 確認對話框（顯示給用戶看的是 display_names）
+        count = len(driver_names)
+        if count == 1:
+            confirm_msg = f"確定要移除驅動程式 '{display_names[0]}'？"
+        else:
+            confirm_msg = f"確定要移除以下 {count} 個驅動程式？\n\n"
+            for name in display_names[:10]:  # 最多顯示10個
+                confirm_msg += f"  • {name}\n"
+            if count > 10:
+                confirm_msg += f"  ... 還有 {count - 10} 個\n"
+        
+        confirm_msg += "\n此操作無法復原！"
+        
+        if not messagebox.askyesno("確認移除", confirm_msg, icon='warning'):
+            return
+        
+        self._log(f"開始移除 {count} 個驅動程式...")
+        self.var_driver_list_status.set(f"正在移除 {count} 個驅動程式...")
+        self._thread(self._do_remove_drivers, mount_dir, driver_names)
+
+    def _do_remove_drivers(self, mount_dir: str, driver_names: list[str]):
+        """實際執行驅動移除"""
+        def progress_callback(current, total, driver_name, success, message):
+            status = "✓" if success else "✗"
+            self._log(f"  [{current}/{total}] {status} {driver_name}")
+            self.after(0, lambda: self.var_driver_list_status.set(f"正在移除... ({current}/{total})"))
+        
+        success_count, fail_count, errors = DriverManager.remove_drivers_batch(
+            mount_dir, driver_names, progress_callback
+        )
+        
+        # 顯示結果
+        result_msg = f"移除完成\n\n成功: {success_count} 個\n失敗: {fail_count} 個"
+        if errors:
+            result_msg += f"\n\n失敗詳情:\n"
+            for err in errors[:5]:
+                result_msg += f"  • {err}\n"
+            if len(errors) > 5:
+                result_msg += f"  ... 還有 {len(errors) - 5} 個錯誤"
+        
+        self._log(f"驅動移除完成: 成功 {success_count}, 失敗 {fail_count}")
+        
+        if fail_count > 0:
+            self.after(0, lambda: messagebox.showwarning("移除完成（有錯誤）", result_msg))
+        else:
+            self.after(0, lambda: messagebox.showinfo("移除完成", result_msg))
+        
+        # 重新整理清單
+        self.after(100, self._on_refresh_driver_list)
+
+    def _on_export_driver_list(self):
+        """匯出驅動清單到 CSV"""
+        items = self.driver_tree.get_children()
+        if not items:
+            messagebox.showwarning("清單為空", "沒有可匯出的驅動程式")
+            return
+        
+        # 選擇儲存位置
+        file_path = filedialog.asksaveasfilename(
+            title="匯出驅動清單",
+            defaultextension=".csv",
+            filetypes=[("CSV 檔案", "*.csv"), ("所有檔案", "*.*")],
+            initialfilename="driver_list.csv"
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            with open(file_path, 'w', encoding='utf-8-sig') as f:
+                # 寫入標題
+                f.write("驅動名稱,提供者,版本,日期,類型\n")
+                
+                # 寫入資料
+                for item in items:
+                    values = self.driver_tree.item(item, 'values')
+                    # 處理可能包含逗號的值
+                    row = [f'"{v}"' if ',' in str(v) else str(v) for v in values]
+                    f.write(",".join(row) + "\n")
+            
+            self._log(f"✓ 驅動清單已匯出到: {file_path}")
+            messagebox.showinfo("匯出成功", f"驅動清單已匯出到:\n{file_path}")
+            
+            # 詢問是否開啟檔案
+            if messagebox.askyesno("開啟檔案", "是否要開啟匯出的檔案？"):
+                os.startfile(file_path)
+                
+        except Exception as e:
+            self._log(f"✗ 匯出失敗: {e}")
+            messagebox.showerror("匯出失敗", f"無法匯出驅動清單:\n{e}")
+
     # 設定檔
     def _load_config(self):
         try:
@@ -3154,6 +4205,11 @@ class App(tk.Tk):
                 self.cfg.add_section('EXTRACT')
             self.cfg.set('EXTRACT', 'source_path', self.var_extract_source.get().strip() if hasattr(self, 'var_extract_source') else '')
             self.cfg.set('EXTRACT', 'output_path', self.var_extract_output.get().strip() if hasattr(self, 'var_extract_output') else '')
+            
+            # Driver List 設定
+            if not self.cfg.has_section('DRIVER_LIST'):
+                self.cfg.add_section('DRIVER_LIST')
+            self.cfg.set('DRIVER_LIST', 'mount_dir', self.var_driver_list_mount_dir.get().strip() if hasattr(self, 'var_driver_list_mount_dir') else '')
             
             # 設定檔直接放在程式同層，不需要建立額外資料夾
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:

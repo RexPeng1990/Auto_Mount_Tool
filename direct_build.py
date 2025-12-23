@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# !/usr/bin/env python3
 """
 最簡直接打包工具
 直接打包原始代碼，確保最高穩定性
