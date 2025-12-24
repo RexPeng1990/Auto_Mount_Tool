@@ -35,7 +35,10 @@ from app.config import (
     DRIVER_EXPORT_DIR, LIST_EXPORT_DIR, LOG_DIR,
     ensure_output_dirs
 )
-from app.utils import Tooltip, create_smart_fix_tooltip
+from app.utils import (
+    Tooltip, create_smart_fix_tooltip,
+    create_mount_directory, open_directory
+)
 
 # 全域 DISM 操作鎖 - 從 wim_manager 模組獲取
 _dism_lock = get_dism_lock()
@@ -934,30 +937,23 @@ class App(tk.Tk):
     def _on_create_mount_dir(self):
         """建立掛載資料夾"""
         path = self.var_mount_dir.get().strip()
-        if not path:
-            messagebox.showwarning("輸入不完整", "請先輸入掛載資料夾路徑")
-            return
-        
-        try:
-            if os.path.exists(path):
-                if os.path.isdir(path):
-                    if os.listdir(path):
-                        self._log(f"資料夾已存在但非空：{path}")
-                        messagebox.showinfo("資料夾狀態", "資料夾已存在但包含檔案。DISM 需要空的掛載資料夾。")
-                    else:
-                        self._log(f"資料夾已存在且為空：{path}")
-                        messagebox.showinfo("資料夾狀態", "資料夾已存在且為空，可以使用。")
-                else:
-                    self._log(f"路徑已存在但不是資料夾：{path}")
-                    messagebox.showerror("路徑錯誤", "指定路徑已存在但不是資料夾")
-            else:
-                os.makedirs(path, exist_ok=True)
-                self._log(f"成功建立掛載資料夾：{path}")
-                messagebox.showinfo("建立成功", f"已建立掛載資料夾：{path}")
+        success, msg = create_mount_directory(path)
+        self._log(msg)
+        if success:
+            if "成功建立" in msg:
+                messagebox.showinfo("建立成功", msg)
                 self._save_config()
-        except Exception as e:
-            self._log(f"建立資料夾失敗：{e}")
-            messagebox.showerror("建立失敗", f"無法建立資料夾：{e}")
+            elif "已存在且為空" in msg:
+                messagebox.showinfo("資料夾狀態", "資料夾已存在且為空，可以使用。")
+        else:
+            if "非空" in msg:
+                messagebox.showinfo("資料夾狀態", "資料夾已存在但包含檔案。DISM 需要空的掛載資料夾。")
+            elif "不是資料夾" in msg:
+                messagebox.showerror("路徑錯誤", "指定路徑已存在但不是資料夾")
+            elif "請先輸入" in msg:
+                messagebox.showwarning("輸入不完整", msg)
+            else:
+                messagebox.showerror("建立失敗", msg)
 
     # ---------- WIM 事件 ----------
     # WIM Index 防呆檢查
@@ -1052,14 +1048,8 @@ class App(tk.Tk):
 
     def _on_open_mount_dir(self):
         path = self.var_mount_dir.get().strip()
-        if not path or not os.path.exists(path):
-            self._log("掛載資料夾不存在或路徑無效")
-            return
-        try:
-            os.startfile(path)
-            self._log(f"已開啟掛載資料夾：{path}")
-        except Exception as e:
-            self._log(f"開啟掛載資料夾失敗：{e}")
+        success, msg = open_directory(path)
+        self._log(msg)
 
     def _on_wim_info(self):
         wim = self.var_wim.get().strip()
@@ -1681,41 +1671,28 @@ class App(tk.Tk):
     def _on_create_mount_dir2(self):
         """建立第二個掛載資料夾"""
         path = self.var_mount_dir2.get().strip()
-        if not path:
-            messagebox.showwarning("輸入不完整", "請先輸入第二個掛載資料夾路徑")
-            return
-        
-        try:
-            if os.path.exists(path):
-                if os.path.isdir(path):
-                    if os.listdir(path):
-                        self._log(f"資料夾已存在但非空：{path}")
-                        messagebox.showinfo("資料夾狀態", "資料夾已存在但包含檔案。DISM 需要空的掛載資料夾。")
-                    else:
-                        self._log(f"資料夾已存在且為空：{path}")
-                        messagebox.showinfo("資料夾狀態", "資料夾已存在且為空，可以使用。")
-                else:
-                    self._log(f"路徑已存在但不是資料夾：{path}")
-                    messagebox.showerror("路徑錯誤", "指定路徑已存在但不是資料夾")
-            else:
-                os.makedirs(path, exist_ok=True)
-                self._log(f"成功建立第二個掛載資料夾：{path}")
-                messagebox.showinfo("建立成功", f"已建立第二個掛載資料夾：{path}")
+        success, msg = create_mount_directory(path, "第二個")
+        self._log(msg)
+        if success:
+            if "成功建立" in msg:
+                messagebox.showinfo("建立成功", msg)
                 self._save_config()
-        except Exception as e:
-            self._log(f"建立資料夾失敗：{e}")
-            messagebox.showerror("建立失敗", f"無法建立資料夾：{e}")
+            elif "已存在且為空" in msg:
+                messagebox.showinfo("資料夾狀態", "資料夾已存在且為空，可以使用。")
+        else:
+            if "非空" in msg:
+                messagebox.showinfo("資料夾狀態", "資料夾已存在但包含檔案。DISM 需要空的掛載資料夾。")
+            elif "不是資料夾" in msg:
+                messagebox.showerror("路徑錯誤", "指定路徑已存在但不是資料夾")
+            elif "請先輸入" in msg:
+                messagebox.showwarning("輸入不完整", msg)
+            else:
+                messagebox.showerror("建立失敗", msg)
 
     def _on_open_mount_dir2(self):
         path = self.var_mount_dir2.get().strip()
-        if not path or not os.path.exists(path):
-            self._log("第二個掛載資料夾不存在或路徑無效")
-            return
-        try:
-            os.startfile(path)
-            self._log(f"已開啟第二個掛載資料夾：{path}")
-        except Exception as e:
-            self._log(f"開啟第二個掛載資料夾失敗：{e}")
+        success, msg = open_directory(path, "第二個")
+        self._log(msg)
 
     def _on_wim_info2(self):
         wim = self.var_wim2.get().strip()

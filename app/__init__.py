@@ -13,7 +13,8 @@ from .config import (
 from .utils import (
     Tooltip, create_smart_fix_tooltip, center_window,
     create_labeled_entry, create_button_group,
-    format_file_size, safe_destroy
+    format_file_size, safe_destroy,
+    create_mount_directory, open_directory
 )
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     'ConfigManager', 'ensure_output_dirs',
     'Tooltip', 'create_smart_fix_tooltip', 'center_window',
     'create_labeled_entry', 'create_button_group',
-    'format_file_size', 'safe_destroy'
+    'format_file_size', 'safe_destroy',
+    'create_mount_directory', 'open_directory'
 ]

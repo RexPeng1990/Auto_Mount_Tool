@@ -218,3 +218,62 @@ def safe_destroy(widget: Optional[tk.Widget]):
             widget.destroy()
         except tk.TclError:
             pass  # Widget 已經被銷毀
+
+
+# ========== 檔案/資料夾操作輔助 ==========
+
+import os
+from tkinter import messagebox
+
+
+def create_mount_directory(path: str, label: str = "") -> tuple:
+    """
+    建立掛載資料夾的通用邏輯
+    
+    Args:
+        path: 資料夾路徑
+        label: 標籤（用於日誌訊息，如 "第二個"）
+        
+    Returns:
+        (success: bool, message: str)
+    """
+    if not path:
+        return False, "請先輸入掛載資料夾路徑"
+    
+    label_prefix = f"{label}" if label else ""
+    
+    try:
+        if os.path.exists(path):
+            if os.path.isdir(path):
+                if os.listdir(path):
+                    return False, f"{label_prefix}資料夾已存在但非空：{path}"
+                else:
+                    return True, f"{label_prefix}資料夾已存在且為空：{path}"
+            else:
+                return False, f"路徑已存在但不是資料夾：{path}"
+        else:
+            os.makedirs(path, exist_ok=True)
+            return True, f"成功建立{label_prefix}掛載資料夾：{path}"
+    except Exception as e:
+        return False, f"建立資料夾失敗：{e}"
+
+
+def open_directory(path: str, label: str = "") -> tuple:
+    """
+    開啟資料夾的通用邏輯
+    
+    Args:
+        path: 資料夾路徑
+        label: 標籤
+        
+    Returns:
+        (success: bool, message: str)
+    """
+    if not path or not os.path.exists(path):
+        return False, f"{label}資料夾不存在或路徑無效"
+    
+    try:
+        os.startfile(path)
+        return True, f"已開啟{label}掛載資料夾：{path}"
+    except Exception as e:
+        return False, f"開啟{label}掛載資料夾失敗：{e}"
