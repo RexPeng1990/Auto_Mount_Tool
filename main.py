@@ -1304,24 +1304,37 @@ class App(tk.Tk):
 
     def _on_check_wim1_status(self):
         """檢查 WIM#1 的掛載狀態"""
-        mdir = self.var_mount_dir.get().strip()
+        self._check_wim_status(
+            self.var_mount_dir, self.var_mount_status1, self.lbl_mount_status1,
+            self._update_wim1_buttons
+        )
+
+    def _on_check_wim2_status(self):
+        """檢查 WIM#2 的掛載狀態"""
+        self._check_wim_status(
+            self.var_mount_dir2, self.var_mount_status2, self.lbl_mount_status2,
+            self._update_wim2_buttons
+        )
+
+    def _check_wim_status(self, path_var, status_var, status_label, update_buttons_func):
+        """通用 WIM 狀態檢查"""
+        mdir = path_var.get().strip()
         if not mdir:
-            self.var_mount_status1.set("未設定掛載路徑")
-            self.lbl_mount_status1.configure(foreground="gray")
-            self._update_wim1_buttons(False)
+            status_var.set("未設定掛載路徑")
+            status_label.configure(foreground="gray")
+            update_buttons_func(False)
             return
         
-        self._thread(self._do_check_wim1_status, mdir)
-
-    def _do_check_wim1_status(self, mdir: str):
-        """實際檢查 WIM#1 狀態"""
-        status, details = WIMManager.get_mount_status_for_path(mdir)
+        def do_check():
+            status, details = WIMManager.get_mount_status_for_path(mdir)
+            self.after(0, lambda: self._update_wim_status_ui(
+                status, details, status_var, status_label, update_buttons_func
+            ))
         
-        # 在主執行緒更新 UI
-        self.after(0, lambda: self._update_wim1_status_ui(status, details))
+        self._thread(do_check)
 
-    def _update_wim1_status_ui(self, status: str, details: str):
-        """更新 WIM#1 狀態 UI"""
+    def _update_wim_status_ui(self, status, details, status_var, status_label, update_buttons_func):
+        """更新 WIM 狀態 UI（通用）"""
         status_map = {
             "mounted": ("✓ 已掛載", "green", True),
             "not_mounted": ("○ 未掛載", "gray", False),
@@ -1331,9 +1344,9 @@ class App(tk.Tk):
         }
         
         text, color, is_mounted = status_map.get(status, ("未知", "gray", False))
-        self.var_mount_status1.set(f"{text} - {details}")
-        self.lbl_mount_status1.configure(foreground=color)
-        self._update_wim1_buttons(is_mounted)
+        status_var.set(f"{text} - {details}")
+        status_label.configure(foreground=color)
+        update_buttons_func(is_mounted)
         
         # 當掛載狀態改變時，同步更新驅動分頁的下拉選單
         self._refresh_all_driver_comboboxes()
@@ -1347,42 +1360,6 @@ class App(tk.Tk):
             self.btn_wim_mount1.configure(state="normal")
             self.btn_wim_unmount1.configure(state="disabled")
 
-    def _on_check_wim2_status(self):
-        """檢查 WIM#2 的掛載狀態"""
-        mdir = self.var_mount_dir2.get().strip()
-        if not mdir:
-            self.var_mount_status2.set("未設定掛載路徑")
-            self.lbl_mount_status2.configure(foreground="gray")
-            self._update_wim2_buttons(False)
-            return
-        
-        self._thread(self._do_check_wim2_status, mdir)
-
-    def _do_check_wim2_status(self, mdir: str):
-        """實際檢查 WIM#2 狀態"""
-        status, details = WIMManager.get_mount_status_for_path(mdir)
-        
-        # 在主執行緒更新 UI
-        self.after(0, lambda: self._update_wim2_status_ui(status, details))
-
-    def _update_wim2_status_ui(self, status: str, details: str):
-        """更新 WIM#2 狀態 UI"""
-        status_map = {
-            "mounted": ("✓ 已掛載", "green", True),
-            "not_mounted": ("○ 未掛載", "gray", False),
-            "needs_remount": ("⚠ 需要修復", "orange", True),
-            "orphaned": ("⚠ 狀態異常", "orange", False),
-            "error": ("✗ 檢查失敗", "red", False),
-        }
-        
-        text, color, is_mounted = status_map.get(status, ("未知", "gray", False))
-        self.var_mount_status2.set(f"{text} - {details}")
-        self.lbl_mount_status2.configure(foreground=color)
-        self._update_wim2_buttons(is_mounted)
-        
-        # 當掛載狀態改變時，同步更新驅動分頁的下拉選單
-        self._refresh_all_driver_comboboxes()
-
     def _update_wim2_buttons(self, is_mounted: bool):
         """根據掛載狀態更新 WIM#2 按鈕狀態"""
         if is_mounted:
@@ -1394,28 +1371,29 @@ class App(tk.Tk):
 
     def _on_close_explorer(self):
         """手動關閉指向掛載資料夾的檔案總管視窗"""
-        mdir = self.var_mount_dir.get().strip()
-        
-        if not mdir:
-            messagebox.showwarning("輸入不完整", "請先指定掛載資料夾")
-            return
-            
-        self._log("手動關閉檔案總管視窗...")
-        self._thread(self._do_close_explorer, mdir)
+        self._close_explorer_for_path(self.var_mount_dir.get().strip())
 
-    def _do_close_explorer(self, mdir: str):
+    def _close_explorer_for_path(self, mdir: str, label: str = ""):
+        """關閉指定路徑的檔案總管視窗"""
+        if not mdir:
+            messagebox.showwarning("輸入不完整", f"請先指定{label}掛載資料夾")
+            return
+        self._log(f"手動關閉{label}檔案總管視窗...")
+        self._thread(self._do_close_explorer, mdir, label)
+
+    def _do_close_explorer(self, mdir: str, label: str = ""):
         """執行關閉檔案總管的操作"""
         try:
             self._log(f"正在關閉指向 {mdir} 的檔案總管視窗...")
             ok, msg = WIMManager.close_explorer_windows(mdir)
             if ok:
                 self._log(f"✓ {msg}")
-                messagebox.showinfo("完成", f"已處理檔案總管視窗\n{msg}")
+                messagebox.showinfo("完成", f"已處理{label}檔案總管視窗\n{msg}")
             else:
                 self._log(f"⚠ {msg}")
-                messagebox.showwarning("注意", f"處理檔案總管視窗時遇到問題:\n{msg}")
+                messagebox.showwarning("注意", f"處理{label}檔案總管視窗時遇到問題:\n{msg}")
         except Exception as e:
-            self._log(f"關閉檔案總管視窗時發生錯誤: {e}")
+            self._log(f"關閉{label}檔案總管視窗時發生錯誤: {e}")
             messagebox.showerror("錯誤", f"操作失敗: {e}")
 
     def _on_check_wim_mount_status(self):
@@ -2005,29 +1983,7 @@ class App(tk.Tk):
 
     def _on_close_explorer2(self):
         """手動關閉指向第二個掛載資料夾的檔案總管視窗"""
-        mdir = self.var_mount_dir2.get().strip()
-        
-        if not mdir:
-            messagebox.showwarning("輸入不完整", "請先指定第二個掛載資料夾")
-            return
-            
-        self._log("手動關閉第二個檔案總管視窗...")
-        self._thread(self._do_close_explorer2, mdir)
-
-    def _do_close_explorer2(self, mdir: str):
-        """執行關閉第二個檔案總管的操作"""
-        try:
-            self._log(f"正在關閉指向 {mdir} 的檔案總管視窗...")
-            ok, msg = WIMManager.close_explorer_windows(mdir)
-            if ok:
-                self._log(f"✓ {msg}")
-                messagebox.showinfo("完成", f"已處理第二個檔案總管視窗\n{msg}")
-            else:
-                self._log(f"⚠ {msg}")
-                messagebox.showwarning("注意", f"處理第二個檔案總管視窗時遇到問題:\n{msg}")
-        except Exception as e:
-            self._log(f"關閉第二個檔案總管視窗時發生錯誤: {e}")
-            messagebox.showerror("錯誤", f"操作失敗: {e}")
+        self._close_explorer_for_path(self.var_mount_dir2.get().strip(), "第二個")
 
     def _do_wim_unmount(self, mdir: str, commit: bool):
         commit_text = "提交變更 (/Commit)" if commit else "丟棄變更 (/Discard)"
