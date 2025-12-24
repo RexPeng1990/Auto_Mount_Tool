@@ -182,7 +182,7 @@ class App(tk.Tk):
         self.cbo_wim_index.bind('<<ComboboxSelected>>', self._on_wim1_index_changed)
 
         self.var_wim_readonly = tk.BooleanVar(value=True)
-        chk_readonly1 = ttk.Checkbutton(row2, text="唯讀掛載 (ReadOnly)", variable=self.var_wim_readonly, command=self._save_config)
+        chk_readonly1 = ttk.Checkbutton(row2, text="唯讀掛載 (ReadOnly)", variable=self.var_wim_readonly, command=self._on_readonly1_changed)
         chk_readonly1.pack(side=tk.LEFT)
         Tooltip(chk_readonly1, 
                 "唯讀掛載：以唯讀模式掛載映像，無法對映像進行任何修改。\n"
@@ -216,16 +216,16 @@ class App(tk.Tk):
         # 卸載選項組
         unmount_options_frame = ttk.Frame(row4)
         unmount_options_frame.pack(side=tk.LEFT, padx=(8, 0))
-        rb_discard1 = ttk.Radiobutton(unmount_options_frame, text="丟棄變更 (/Discard)", variable=self.var_unmount_commit, value=False, command=self._save_config)
-        rb_discard1.pack(side=tk.LEFT)
-        Tooltip(rb_discard1, 
+        self.rb_discard1 = ttk.Radiobutton(unmount_options_frame, text="丟棄變更 (/Discard)", variable=self.var_unmount_commit, value=False, command=self._save_config)
+        self.rb_discard1.pack(side=tk.LEFT)
+        Tooltip(self.rb_discard1, 
                 "丟棄變更：放棄掛載期間所做的所有修改，不寫回 WIM 檔案。\n"
                 "• 若使用唯讀掛載，只能使用此選項\n"
                 "• 適合測試或不想保留變更的情況")
         
-        rb_commit1 = ttk.Radiobutton(unmount_options_frame, text="提交變更 (/Commit)", variable=self.var_unmount_commit, value=True, command=self._save_config)
-        rb_commit1.pack(side=tk.LEFT, padx=(20, 0))
-        Tooltip(rb_commit1, 
+        self.rb_commit1 = ttk.Radiobutton(unmount_options_frame, text="提交變更 (/Commit)", variable=self.var_unmount_commit, value=True, command=self._save_config)
+        self.rb_commit1.pack(side=tk.LEFT, padx=(20, 0))
+        Tooltip(self.rb_commit1, 
                 "提交變更：將掛載期間的修改寫回 WIM 檔案。\n"
                 "• 僅在讀寫模式掛載時有效\n"
                 "• 添加/刪除驅動後需使用此選項才能保存\n"
@@ -294,7 +294,7 @@ class App(tk.Tk):
         self.cbo_wim_index2.bind('<<ComboboxSelected>>', self._on_wim2_index_changed)
 
         self.var_wim_readonly2 = tk.BooleanVar(value=True)
-        chk_readonly2 = ttk.Checkbutton(row2_2, text="唯讀掛載 (ReadOnly)", variable=self.var_wim_readonly2, command=self._save_config)
+        chk_readonly2 = ttk.Checkbutton(row2_2, text="唯讀掛載 (ReadOnly)", variable=self.var_wim_readonly2, command=self._on_readonly2_changed)
         chk_readonly2.pack(side=tk.LEFT)
         Tooltip(chk_readonly2, 
                 "唯讀掛載：以唯讀模式掛載映像，無法對映像進行任何修改。\n"
@@ -328,16 +328,16 @@ class App(tk.Tk):
         # 卸載選項組 #2
         unmount2_options_frame = ttk.Frame(row4_2)
         unmount2_options_frame.pack(side=tk.LEFT, padx=(8, 0))
-        rb_discard2 = ttk.Radiobutton(unmount2_options_frame, text="丟棄變更 (/Discard)", variable=self.var_unmount_commit2, value=False, command=self._save_config)
-        rb_discard2.pack(side=tk.LEFT)
-        Tooltip(rb_discard2, 
+        self.rb_discard2 = ttk.Radiobutton(unmount2_options_frame, text="丟棄變更 (/Discard)", variable=self.var_unmount_commit2, value=False, command=self._save_config)
+        self.rb_discard2.pack(side=tk.LEFT)
+        Tooltip(self.rb_discard2, 
                 "丟棄變更：放棄掛載期間所做的所有修改，不寫回 WIM 檔案。\n"
                 "• 若使用唯讀掛載，只能使用此選項\n"
                 "• 適合測試或不想保留變更的情況")
         
-        rb_commit2 = ttk.Radiobutton(unmount2_options_frame, text="提交變更 (/Commit)", variable=self.var_unmount_commit2, value=True, command=self._save_config)
-        rb_commit2.pack(side=tk.LEFT, padx=(20, 0))
-        Tooltip(rb_commit2, 
+        self.rb_commit2 = ttk.Radiobutton(unmount2_options_frame, text="提交變更 (/Commit)", variable=self.var_unmount_commit2, value=True, command=self._save_config)
+        self.rb_commit2.pack(side=tk.LEFT, padx=(20, 0))
+        Tooltip(self.rb_commit2, 
                 "提交變更：將掛載期間的修改寫回 WIM 檔案。\n"
                 "• 僅在讀寫模式掛載時有效\n"
                 "• 添加/刪除驅動後需使用此選項才能保存\n"
@@ -749,6 +749,9 @@ class App(tk.Tk):
 
         # 初始化下拉選單
         self._init_driver_combobox()
+        
+        # 初始化卸載選項狀態（根據唯讀設定）
+        self.after(100, self._init_unmount_options_state)
 
     def _init_driver_combobox(self):
         """初始化 Driver 分頁的下拉選單"""
@@ -966,6 +969,61 @@ class App(tk.Tk):
         if hasattr(self, '_mount_check_timer2'):
             self.after_cancel(self._mount_check_timer2)
         self._mount_check_timer2 = self.after(500, self._on_check_wim2_status)
+
+    def _on_readonly1_changed(self):
+        """當 WIM#1 唯讀選項變更時更新卸載模式狀態"""
+        is_readonly = self.var_wim_readonly.get()
+        self._update_unmount_options_state(
+            is_readonly, 
+            self.var_unmount_commit, 
+            self.rb_commit1
+        )
+        self._save_config()
+
+    def _on_readonly2_changed(self):
+        """當 WIM#2 唯讀選項變更時更新卸載模式狀態"""
+        is_readonly = self.var_wim_readonly2.get()
+        self._update_unmount_options_state(
+            is_readonly,
+            self.var_unmount_commit2,
+            self.rb_commit2
+        )
+        self._save_config()
+
+    def _update_unmount_options_state(self, is_readonly: bool, commit_var: tk.BooleanVar, commit_rb: ttk.Radiobutton):
+        """
+        根據唯讀狀態更新卸載選項
+        
+        Args:
+            is_readonly: 是否為唯讀模式
+            commit_var: 提交變更的 BooleanVar
+            commit_rb: 提交變更的 RadioButton
+        """
+        if is_readonly:
+            # 唯讀模式：強制選擇丟棄變更，禁用提交選項
+            commit_var.set(False)
+            commit_rb.configure(state='disabled')
+        else:
+            # 讀寫模式：啟用提交選項
+            commit_rb.configure(state='normal')
+
+    def _init_unmount_options_state(self):
+        """初始化卸載選項狀態（根據唯讀設定）"""
+        # WIM#1
+        if hasattr(self, 'var_wim_readonly') and hasattr(self, 'rb_commit1'):
+            self._update_unmount_options_state(
+                self.var_wim_readonly.get(),
+                self.var_unmount_commit,
+                self.rb_commit1
+            )
+        
+        # WIM#2
+        if hasattr(self, 'var_wim_readonly2') and hasattr(self, 'rb_commit2'):
+            self._update_unmount_options_state(
+                self.var_wim_readonly2.get(),
+                self.var_unmount_commit2,
+                self.rb_commit2
+            )
 
     def _elevate_and_exit(self):
         """自動提升權限並退出當前程序（靜默執行）"""
