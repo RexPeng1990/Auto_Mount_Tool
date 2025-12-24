@@ -35,6 +35,7 @@ from app.config import (
     DRIVER_EXPORT_DIR, LIST_EXPORT_DIR, LOG_DIR,
     ensure_output_dirs
 )
+from app.utils import Tooltip, create_smart_fix_tooltip
 
 # 全域 DISM 操作鎖 - 從 wim_manager 模組獲取
 _dism_lock = get_dism_lock()
@@ -236,57 +237,8 @@ class App(tk.Tk):
                                   command=self._on_smart_cleanup_fix, width=12)
         smart_fix_btn.pack(side=tk.LEFT, padx=(8, 0))
         
-        # 添加工具提示
-        tooltip_window = None  # 用於追蹤當前的工具提示窗口
-        
-        def show_tooltip(event):
-            nonlocal tooltip_window
-            # 如果已經有工具提示窗口存在，先關閉它
-            if tooltip_window:
-                tooltip_window.destroy()
-                tooltip_window = None
-            
-            tooltip_window = tk.Toplevel()
-            tooltip_window.wm_overrideredirect(True)
-            tooltip_window.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
-            
-            # 使用 Frame 來控制寬度和添加邊距
-            frame = tk.Frame(tooltip_window, bg="lightyellow", relief="solid", bd=1)
-            frame.pack()
-            
-            # 分行顯示，避免文字過長
-            lines = [
-                "🔧 智能一鍵修復",
-                "自動診斷並修復所有 WIM 掛載問題",
-                "",
-                "包含功能：",
-                "• 狀態檢查與診斷", 
-                "• 清理掛載衝突",
-                "• 修復損壞掛載",
-                "• 系統級清理"
-            ]
-            
-            for line in lines:
-                label = tk.Label(frame, text=line, bg="lightyellow", 
-                               font=("Arial", 9), anchor="w", justify="left")
-                label.pack(anchor="w", padx=8, pady=1)
-            
-            def hide_tooltip():
-                nonlocal tooltip_window
-                if tooltip_window:
-                    tooltip_window.destroy()
-                    tooltip_window = None
-                    
-            tooltip_window.after(4000, hide_tooltip)  # 延長顯示時間
-        
-        def hide_tooltip_on_leave(event):
-            nonlocal tooltip_window
-            if tooltip_window:
-                tooltip_window.destroy()
-                tooltip_window = None
-        
-        smart_fix_btn.bind("<Enter>", show_tooltip)
-        smart_fix_btn.bind("<Leave>", hide_tooltip_on_leave)
+        # 使用工具模組的 Tooltip
+        create_smart_fix_tooltip(smart_fix_btn)
 
     def _build_wim2_tab(self, parent: tk.Misc):
         # 使用 padding 的 frame
@@ -379,57 +331,8 @@ class App(tk.Tk):
                                    command=self._on_smart_cleanup_fix, width=12)
         smart_fix_btn2.pack(side=tk.LEFT, padx=(8, 0))
         
-        # 添加工具提示
-        tooltip_window2 = None  # 用於追蹤當前的工具提示窗口
-        
-        def show_tooltip2(event):
-            nonlocal tooltip_window2
-            # 如果已經有工具提示窗口存在，先關閉它
-            if tooltip_window2:
-                tooltip_window2.destroy()
-                tooltip_window2 = None
-            
-            tooltip_window2 = tk.Toplevel()
-            tooltip_window2.wm_overrideredirect(True)
-            tooltip_window2.wm_geometry(f"+{event.x_root+10}+{event.y_root+10}")
-            
-            # 使用 Frame 來控制寬度和添加邊距
-            frame = tk.Frame(tooltip_window2, bg="lightyellow", relief="solid", bd=1)
-            frame.pack()
-            
-            # 分行顯示，避免文字過長
-            lines = [
-                "🔧 智能一鍵修復",
-                "自動診斷並修復所有 WIM 掛載問題",
-                "",
-                "包含功能：",
-                "• 狀態檢查與診斷", 
-                "• 清理掛載衝突",
-                "• 修復損壞掛載",
-                "• 系統級清理"
-            ]
-            
-            for line in lines:
-                label = tk.Label(frame, text=line, bg="lightyellow", 
-                               font=("Arial", 9), anchor="w", justify="left")
-                label.pack(anchor="w", padx=8, pady=1)
-            
-            def hide_tooltip():
-                nonlocal tooltip_window2
-                if tooltip_window2:
-                    tooltip_window2.destroy()
-                    tooltip_window2 = None
-                    
-            tooltip_window2.after(4000, hide_tooltip)  # 延長顯示時間
-        
-        def hide_tooltip2_on_leave(event):
-            nonlocal tooltip_window2
-            if tooltip_window2:
-                tooltip_window2.destroy()
-                tooltip_window2 = None
-        
-        smart_fix_btn2.bind("<Enter>", show_tooltip2)
-        smart_fix_btn2.bind("<Leave>", hide_tooltip2_on_leave)
+        # 使用工具模組的 Tooltip
+        create_smart_fix_tooltip(smart_fix_btn2)
 
     # WIM 分頁配置載入
     def _load_wim_config(self):
