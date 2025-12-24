@@ -30,22 +30,15 @@ import configparser
 # 導入模組化的類別
 from app.wim_manager import WIMManager, get_dism_lock, is_dism_busy, set_dism_busy
 from app.driver_manager import DriverManager
+from app.config import (
+    SCRIPT_DIR, CONFIG_FILE, OUTPUT_DIR,
+    DRIVER_EXPORT_DIR, LIST_EXPORT_DIR, LOG_DIR,
+    ensure_output_dirs
+)
 
 # 全域 DISM 操作鎖 - 從 wim_manager 模組獲取
 _dism_lock = get_dism_lock()
 _dism_busy = False  # 本地追蹤變數
-
-## 移除網路磁碟相依（專注於 WIM/Driver 功能）
-
-# 設定檔路徑（儲存最近使用的路徑/選項）
-# 自動判斷 .py 或 .exe 模式，將設定檔放在執行檔同層
-if getattr(sys, 'frozen', False):
-    # 打包成 .exe 時
-    SCRIPT_DIR = os.path.dirname(sys.executable)
-else:
-    # .py 腳本模式
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_FILE = os.path.join(SCRIPT_DIR, 'settings.ini')
 
 # -----------------------------
 # 工具層：WIM 掛載（使用 DISM）
@@ -74,14 +67,10 @@ class App(tk.Tk):
     
     def _init_log_file(self):
         """初始化 log 檔案"""
-        # 建立 log 資料夾
-        log_dir = os.path.join(SCRIPT_DIR, "log")
-        os.makedirs(log_dir, exist_ok=True)
-        
-        # 建立 log 檔案（使用日期+時間）
+        # 使用 config 模組的 LOG_DIR（已自動建立）
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         log_filename = f"session_{timestamp}.log"
-        self._log_file_path = os.path.join(log_dir, log_filename)
+        self._log_file_path = os.path.join(LOG_DIR, log_filename)
         
         # 寫入檔案開頭
         with open(self._log_file_path, 'w', encoding='utf-8') as f:
@@ -99,9 +88,6 @@ class App(tk.Tk):
         # 左側：應用名稱
         title_label = ttk.Label(toolbar_frame, text="WIM/Driver 管理工具", font=('Arial', 11, 'bold'))
         title_label.pack(side=tk.LEFT)
-        
-        # 右側：設定按鈕
-        ttk.Button(toolbar_frame, text="⚙ 設定", command=self._on_open_settings, width=8).pack(side=tk.RIGHT)
         
         # 分隔線
         ttk.Separator(self, orient='horizontal').pack(fill=tk.X)
@@ -2621,7 +2607,7 @@ class App(tk.Tk):
     # ---------- 整合版驅動管理功能 ----------
     
     def _on_extract_selected_drivers(self):
-        """提取驅動程式（整合版）- 根據選取狀態決定提取全部或選定"""
+        """提取驅動程式（整合版）- 使用預設輸出目錄"""
         mount_dir = self.var_driver_list_mount_dir.get().strip()
         if not mount_dir:
             messagebox.showwarning("未選擇映像", "請先選擇一個已掛載的映像")
@@ -2635,25 +2621,15 @@ class App(tk.Tk):
             messagebox.showwarning("清單為空", "沒有可提取的驅動程式")
             return
         
-        # 取得預設輸出目錄（從設定）
-        default_path = self._cfg_get('EXTRACT', 'output_path') or ""
-        
-        # 彈出對話框選擇輸出目錄
-        output_path = filedialog.askdirectory(
-            title="選擇驅動程式提取輸出目錄",
-            initialdir=default_path if default_path and os.path.exists(default_path) else None
-        )
-        if not output_path:
-            return
+        # 使用預設輸出目錄
+        output_path = DRIVER_EXPORT_DIR
         
         # 確認訊息根據是否有選取來調整
         if checked_drivers:
-            # 有勾選 -> 只提取選定的 (注意: DISM 只能全部萃取，所以實際還是全部)
             confirm_msg = (f"將從映像提取驅動程式到:\n{output_path}\n\n"
                           f"已選取 {len(checked_drivers)} 個驅動程式\n"
                           f"（注意：DISM 會提取所有驅動程式）\n\n繼續？")
         else:
-            # 沒勾選 -> 提取全部
             confirm_msg = (f"將從映像提取所有驅動程式到:\n{output_path}\n\n"
                           f"共 {total_count} 個驅動程式\n\n繼續？")
         
@@ -3395,9 +3371,8 @@ class App(tk.Tk):
             messagebox.showwarning("清單為空", "沒有可匯出的驅動程式")
             return
         
-        # 取得輸出目錄
-        output_dir = self._cfg_get('EXPORT', 'output_path') or SCRIPT_DIR
-        output_dir = output_dir.replace('/', '\\')
+        # 使用預設輸出目錄
+        output_dir = LIST_EXPORT_DIR
         
         # 生成檔名（包含時間戳）
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -3405,9 +3380,6 @@ class App(tk.Tk):
         
         # 完整路徑
         file_path = os.path.join(output_dir, filename)
-        
-        # 確保目錄存在
-        os.makedirs(output_dir, exist_ok=True)
         
         try:
             with open(file_path, 'w', encoding='utf-8-sig') as f:
@@ -3435,111 +3407,6 @@ class App(tk.Tk):
         except Exception as e:
             self._log(f"✗ 匯出失敗: {e}")
             messagebox.showerror("匯出失敗", f"無法匯出驅動清單:\n{e}")
-
-    # ========== 設定對話框 ==========
-    def _on_open_settings(self):
-        """開啟設定對話框"""
-        dialog = tk.Toplevel(self)
-        dialog.title("設定")
-        dialog.geometry("550x200")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.transient(self)
-        
-        # 置中顯示
-        dialog.update_idletasks()
-        x = self.winfo_x() + (self.winfo_width() - 550) // 2
-        y = self.winfo_y() + (self.winfo_height() - 200) // 2
-        dialog.geometry(f"550x200+{x}+{y}")
-        
-        # 主框架
-        main_frame = ttk.Frame(dialog, padding=15)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # === 驅動程式設定 ===
-        driver_frame = ttk.LabelFrame(main_frame, text="驅動程式設定", padding=10)
-        driver_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        # 提取輸出目錄
-        ttk.Label(driver_frame, text="提取輸出目錄:").grid(row=0, column=0, sticky="w", pady=4)
-        
-        extract_path_frame = ttk.Frame(driver_frame)
-        extract_path_frame.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=4)
-        
-        self.var_settings_extract_path = tk.StringVar()
-        # 載入現有設定，預設為程式根目錄
-        saved_extract_path = self._cfg_get('EXTRACT', 'output_path')
-        if saved_extract_path:
-            self.var_settings_extract_path.set(saved_extract_path.replace('/', '\\'))
-        else:
-            self.var_settings_extract_path.set(SCRIPT_DIR)
-        
-        extract_entry = ttk.Entry(extract_path_frame, textvariable=self.var_settings_extract_path, width=40)
-        extract_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        def browse_extract_path():
-            path = filedialog.askdirectory(title="選擇驅動程式提取輸出目錄")
-            if path:
-                self.var_settings_extract_path.set(path.replace('/', '\\'))
-        
-        ttk.Button(extract_path_frame, text="瀏覽...", command=browse_extract_path, width=8).pack(side=tk.LEFT, padx=(8, 0))
-        
-        # 匯出清單目錄
-        ttk.Label(driver_frame, text="匯出清單目錄:").grid(row=1, column=0, sticky="w", pady=4)
-        
-        export_path_frame = ttk.Frame(driver_frame)
-        export_path_frame.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=4)
-        
-        self.var_settings_export_path = tk.StringVar()
-        # 載入現有設定，預設為程式根目錄
-        saved_export_path = self._cfg_get('EXPORT', 'output_path')
-        if saved_export_path:
-            self.var_settings_export_path.set(saved_export_path.replace('/', '\\'))
-        else:
-            self.var_settings_export_path.set(SCRIPT_DIR)
-        
-        export_entry = ttk.Entry(export_path_frame, textvariable=self.var_settings_export_path, width=40)
-        export_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        def browse_export_path():
-            path = filedialog.askdirectory(title="選擇匯出清單輸出目錄")
-            if path:
-                self.var_settings_export_path.set(path.replace('/', '\\'))
-        
-        ttk.Button(export_path_frame, text="瀏覽...", command=browse_export_path, width=8).pack(side=tk.LEFT, padx=(8, 0))
-        
-        driver_frame.columnconfigure(1, weight=1)
-        
-        # === 按鈕區 ===
-        btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack(fill=tk.X, pady=(10, 0))
-        
-        def save_settings():
-            # 儲存提取輸出目錄
-            if not self.cfg.has_section('EXTRACT'):
-                self.cfg.add_section('EXTRACT')
-            self.cfg.set('EXTRACT', 'output_path', self.var_settings_extract_path.get().strip())
-            
-            # 儲存匯出清單目錄
-            if not self.cfg.has_section('EXPORT'):
-                self.cfg.add_section('EXPORT')
-            self.cfg.set('EXPORT', 'output_path', self.var_settings_export_path.get().strip())
-            
-            # 同步到主程式的變數
-            if hasattr(self, 'var_extract_output'):
-                self.var_extract_output.set(self.var_settings_extract_path.get().strip())
-            
-            # 儲存到檔案
-            self._save_config()
-            self._log("✓ 設定已儲存")
-            messagebox.showinfo("儲存成功", "設定已儲存")
-            dialog.destroy()
-        
-        def cancel_settings():
-            dialog.destroy()
-        
-        ttk.Button(btn_frame, text="儲存", command=save_settings, width=10).pack(side=tk.RIGHT, padx=(8, 0))
-        ttk.Button(btn_frame, text="取消", command=cancel_settings, width=10).pack(side=tk.RIGHT)
 
     # ========== 設定檔 ==========
     def _load_config(self):
@@ -3582,18 +3449,12 @@ class App(tk.Tk):
             self.cfg.set('DRIVER', 'recurse', '1' if (hasattr(self, 'var_driver_recurse') and self.var_driver_recurse.get()) else '0')
             self.cfg.set('DRIVER', 'force_unsigned', '1' if (hasattr(self, 'var_driver_force_unsigned') and self.var_driver_force_unsigned.get()) else '0')
             
-            # Extract 設定
-            if not self.cfg.has_section('EXTRACT'):
-                self.cfg.add_section('EXTRACT')
-            self.cfg.set('EXTRACT', 'source_path', self.var_extract_source.get().strip() if hasattr(self, 'var_extract_source') else '')
-            self.cfg.set('EXTRACT', 'output_path', self.var_extract_output.get().strip() if hasattr(self, 'var_extract_output') else '')
-            
             # Driver List 設定
             if not self.cfg.has_section('DRIVER_LIST'):
                 self.cfg.add_section('DRIVER_LIST')
             self.cfg.set('DRIVER_LIST', 'mount_dir', self.var_driver_list_mount_dir.get().strip() if hasattr(self, 'var_driver_list_mount_dir') else '')
             
-            # 設定檔直接放在程式同層，不需要建立額外資料夾
+            # 儲存設定檔
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 self.cfg.write(f)
         except Exception:
