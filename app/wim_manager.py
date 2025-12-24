@@ -7,10 +7,14 @@ import os
 import re
 import subprocess
 import threading
+from typing import Callable, Optional
 
 # 全域 DISM 操作鎖 - 防止多個 DISM 操作同時執行
 _dism_lock = threading.Lock()
 _dism_busy = False
+
+# 進度回調類型定義
+ProgressCallback = Optional[Callable[[str], None]]
 
 
 class WIMManager:
@@ -46,6 +50,57 @@ class WIMManager:
         try:
             cp = subprocess.run(["dism", "/English", *args], capture_output=True, text=True)
             return cp.returncode, cp.stdout or "", cp.stderr or ""
+        except FileNotFoundError as e:
+            return 9001, "", f"找不到 DISM：{e}"
+        except Exception as e:
+            return 9002, "", str(e)
+
+    @staticmethod
+    def _run_dism_with_progress(args: list[str], progress_callback: ProgressCallback = None) -> tuple[int, str, str]:
+        """
+        執行 DISM 命令並即時回報進度
+        
+        Args:
+            args: DISM 命令參數
+            progress_callback: 進度回調函數，接收進度字串 (如 "10.0%")
+        
+        Returns:
+            (return_code, stdout, stderr)
+        """
+        try:
+            # 使用 Popen 以便即時讀取輸出
+            process = subprocess.Popen(
+                ["dism", "/English", *args],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,  # 行緩衝
+                universal_newlines=True
+            )
+            
+            stdout_lines = []
+            stderr_output = ""
+            
+            # 即時讀取 stdout
+            if process.stdout:
+                for line in process.stdout:
+                    stdout_lines.append(line)
+                    
+                    # 解析進度百分比 (DISM 輸出格式: "[===   10.0%   ]" 或 "[ 10.0% ]")
+                    if progress_callback:
+                        progress_match = re.search(r'(\d+\.?\d*)\s*%', line)
+                        if progress_match:
+                            progress_callback(f"{progress_match.group(1)}%")
+            
+            # 讀取 stderr
+            if process.stderr:
+                stderr_output = process.stderr.read()
+            
+            # 等待進程結束
+            process.wait()
+            
+            return process.returncode, "".join(stdout_lines), stderr_output
+            
         except FileNotFoundError as e:
             return 9001, "", f"找不到 DISM：{e}"
         except Exception as e:
@@ -103,7 +158,8 @@ class WIMManager:
     # ==================== 掛載/卸載操作 ====================
 
     @staticmethod
-    def mount_wim(wim_path: str, index: int, mount_dir: str, readonly: bool) -> tuple[bool, str]:
+    def mount_wim(wim_path: str, index: int, mount_dir: str, readonly: bool,
+                  progress_callback: ProgressCallback = None) -> tuple[bool, str]:
         """
         掛載 WIM 映像
         
@@ -112,6 +168,7 @@ class WIMManager:
             index: 映像索引
             mount_dir: 掛載目錄
             readonly: 是否唯讀
+            progress_callback: 進度回調函數，接收進度字串
         
         Returns:
             (success, message)
@@ -126,19 +183,23 @@ class WIMManager:
         ]
         if readonly:
             args.append("/ReadOnly")
-        rc, out, err = WIMManager._run_dism(args)
+        
+        # 使用支援進度的方法
+        rc, out, err = WIMManager._run_dism_with_progress(args, progress_callback)
         if rc == 0:
             return True, "WIM 掛載完成"
         return False, err or out
 
     @staticmethod
-    def unmount_wim(mount_dir: str, commit: bool = False) -> tuple[bool, str]:
+    def unmount_wim(mount_dir: str, commit: bool = False,
+                    progress_callback: ProgressCallback = None) -> tuple[bool, str]:
         """
         卸載 WIM 映像
         
         Args:
             mount_dir: 掛載目錄
             commit: 是否提交變更
+            progress_callback: 進度回調函數，接收進度字串
         
         Returns:
             (success, message)
@@ -149,7 +210,9 @@ class WIMManager:
             f"/MountDir:{m}",
             "/Commit" if commit else "/Discard",
         ]
-        rc, out, err = WIMManager._run_dism(args)
+        
+        # 使用支援進度的方法
+        rc, out, err = WIMManager._run_dism_with_progress(args, progress_callback)
         if rc == 0:
             return True, "WIM 卸載完成"
         return False, err or out

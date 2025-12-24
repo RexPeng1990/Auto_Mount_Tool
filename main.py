@@ -182,7 +182,13 @@ class App(tk.Tk):
         self.cbo_wim_index.bind('<<ComboboxSelected>>', self._on_wim1_index_changed)
 
         self.var_wim_readonly = tk.BooleanVar(value=True)
-        ttk.Checkbutton(row2, text="唯讀掛載 (ReadOnly)", variable=self.var_wim_readonly, command=self._save_config).pack(side=tk.LEFT)
+        chk_readonly1 = ttk.Checkbutton(row2, text="唯讀掛載 (ReadOnly)", variable=self.var_wim_readonly, command=self._save_config)
+        chk_readonly1.pack(side=tk.LEFT)
+        Tooltip(chk_readonly1, 
+                "唯讀掛載：以唯讀模式掛載映像，無法對映像進行任何修改。\n"
+                "• 適合只需查看映像內容的情況\n"
+                "• 卸載時只能使用「丟棄變更」模式\n"
+                "• 若需要修改映像（如添加驅動），請取消勾選")
 
         # 行 3：掛載資料夾
         row3 = ttk.Frame(wim1_frame)
@@ -210,8 +216,20 @@ class App(tk.Tk):
         # 卸載選項組
         unmount_options_frame = ttk.Frame(row4)
         unmount_options_frame.pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Radiobutton(unmount_options_frame, text="丟棄變更 (/Discard)", variable=self.var_unmount_commit, value=False, command=self._save_config).pack(side=tk.LEFT)
-        ttk.Radiobutton(unmount_options_frame, text="提交變更 (/Commit)", variable=self.var_unmount_commit, value=True, command=self._save_config).pack(side=tk.LEFT, padx=(20, 0))
+        rb_discard1 = ttk.Radiobutton(unmount_options_frame, text="丟棄變更 (/Discard)", variable=self.var_unmount_commit, value=False, command=self._save_config)
+        rb_discard1.pack(side=tk.LEFT)
+        Tooltip(rb_discard1, 
+                "丟棄變更：放棄掛載期間所做的所有修改，不寫回 WIM 檔案。\n"
+                "• 若使用唯讀掛載，只能使用此選項\n"
+                "• 適合測試或不想保留變更的情況")
+        
+        rb_commit1 = ttk.Radiobutton(unmount_options_frame, text="提交變更 (/Commit)", variable=self.var_unmount_commit, value=True, command=self._save_config)
+        rb_commit1.pack(side=tk.LEFT, padx=(20, 0))
+        Tooltip(rb_commit1, 
+                "提交變更：將掛載期間的修改寫回 WIM 檔案。\n"
+                "• 僅在讀寫模式掛載時有效\n"
+                "• 添加/刪除驅動後需使用此選項才能保存\n"
+                "• 提交過程可能需要較長時間")
 
         # 掛載狀態顯示
         row4b = ttk.Frame(wim1_frame)
@@ -276,7 +294,13 @@ class App(tk.Tk):
         self.cbo_wim_index2.bind('<<ComboboxSelected>>', self._on_wim2_index_changed)
 
         self.var_wim_readonly2 = tk.BooleanVar(value=True)
-        ttk.Checkbutton(row2_2, text="唯讀掛載 (ReadOnly)", variable=self.var_wim_readonly2, command=self._save_config).pack(side=tk.LEFT)
+        chk_readonly2 = ttk.Checkbutton(row2_2, text="唯讀掛載 (ReadOnly)", variable=self.var_wim_readonly2, command=self._save_config)
+        chk_readonly2.pack(side=tk.LEFT)
+        Tooltip(chk_readonly2, 
+                "唯讀掛載：以唯讀模式掛載映像，無法對映像進行任何修改。\n"
+                "• 適合只需查看映像內容的情況\n"
+                "• 卸載時只能使用「丟棄變更」模式\n"
+                "• 若需要修改映像（如添加驅動），請取消勾選")
 
         # 行 3：掛載資料夾 #2
         row3_2 = ttk.Frame(wim2_frame)
@@ -304,8 +328,20 @@ class App(tk.Tk):
         # 卸載選項組 #2
         unmount2_options_frame = ttk.Frame(row4_2)
         unmount2_options_frame.pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Radiobutton(unmount2_options_frame, text="丟棄變更 (/Discard)", variable=self.var_unmount_commit2, value=False, command=self._save_config).pack(side=tk.LEFT)
-        ttk.Radiobutton(unmount2_options_frame, text="提交變更 (/Commit)", variable=self.var_unmount_commit2, value=True, command=self._save_config).pack(side=tk.LEFT, padx=(20, 0))
+        rb_discard2 = ttk.Radiobutton(unmount2_options_frame, text="丟棄變更 (/Discard)", variable=self.var_unmount_commit2, value=False, command=self._save_config)
+        rb_discard2.pack(side=tk.LEFT)
+        Tooltip(rb_discard2, 
+                "丟棄變更：放棄掛載期間所做的所有修改，不寫回 WIM 檔案。\n"
+                "• 若使用唯讀掛載，只能使用此選項\n"
+                "• 適合測試或不想保留變更的情況")
+        
+        rb_commit2 = ttk.Radiobutton(unmount2_options_frame, text="提交變更 (/Commit)", variable=self.var_unmount_commit2, value=True, command=self._save_config)
+        rb_commit2.pack(side=tk.LEFT, padx=(20, 0))
+        Tooltip(rb_commit2, 
+                "提交變更：將掛載期間的修改寫回 WIM 檔案。\n"
+                "• 僅在讀寫模式掛載時有效\n"
+                "• 添加/刪除驅動後需使用此選項才能保存\n"
+                "• 提交過程可能需要較長時間")
 
         # 掛載狀態顯示 #2
         row4b_2 = ttk.Frame(wim2_frame)
@@ -751,29 +787,33 @@ class App(tk.Tk):
     def _refresh_all_driver_comboboxes(self, auto_load_drivers: bool = False):
         """重新整理所有 Driver 下拉選單並自動選擇已掛載的映像
         
+        選擇邏輯:
+        - 優先選擇第一個已掛載的 WIM
+        - 若都掛載或都未掛載，預設選擇 WIM#1
+        
         Args:
             auto_load_drivers: 是否自動載入驅動清單 (預設 False 避免 DISM 衝突)
         """
         options = self._get_wim_options()
         values = [opt[0] for opt in options]
         
-        # 找出第一個已掛載的映像索引
-        mounted_idx = -1
+        # 找出第一個已掛載的映像索引，若都沒有則預設選 WIM#1 (index 0)
+        selected_idx = 0  # 預設 WIM#1
         for i, (_, path, status) in enumerate(options):
             if status == "mounted" and path:
-                mounted_idx = i
+                selected_idx = i
                 break
         
         # 更新驅動管理下拉選單
         if hasattr(self, 'cbo_driver_target'):
             self.cbo_driver_target['values'] = values
-            if mounted_idx >= 0:
-                self.cbo_driver_target.current(mounted_idx)
-                _, path, status = options[mounted_idx]
+            if values:
+                self.cbo_driver_target.current(selected_idx)
+                _, path, status = options[selected_idx]
                 self.var_driver_list_mount_dir.set(path)
                 self._update_wim_status_display(self.var_driver_status, self.lbl_driver_status, path, status)
                 # 只有明確要求時才自動載入驅動清單
-                if auto_load_drivers:
+                if auto_load_drivers and status == "mounted":
                     self._on_refresh_driver_list()
             self._update_driver_buttons_state()
 
@@ -795,6 +835,29 @@ class App(tk.Tk):
                     f.write(log_line + "\n")
             except Exception:
                 pass  # 忽略寫入錯誤
+
+    def _update_progress_status(self, progress: str):
+        """
+        更新進度狀態到標題列或狀態區域
+        線程安全：可從背景線程呼叫
+        
+        Args:
+            progress: 進度字串 (如 "掛載進度: 10.0%")，空字串表示清除進度
+        """
+        def update_ui():
+            if hasattr(self, '_progress_label'):
+                # 如果有專門的進度標籤就更新它
+                self._progress_label.configure(text=progress)
+            else:
+                # 否則更新窗口標題
+                base_title = "WIM/Driver 管理工具"
+                if progress:
+                    self.title(f"{base_title} - {progress}")
+                else:
+                    self.title(base_title)
+        
+        # 確保在主線程執行 UI 更新
+        self.after(0, update_ui)
 
     def show_error_with_advice(self, title: str, error_message: str):
         """
@@ -1229,7 +1292,15 @@ class App(tk.Tk):
     
     def _perform_mount(self, wim: str, index: int, mdir: str, ro: bool):
         """實際執行掛載操作"""
-        ok, msg = WIMManager.mount_wim(wim, index, mdir, ro)
+        # 進度回調函數 - 更新日誌顯示進度
+        def on_progress(progress: str):
+            self._update_progress_status(f"掛載進度: {progress}")
+        
+        ok, msg = WIMManager.mount_wim(wim, index, mdir, ro, progress_callback=on_progress)
+        
+        # 清除進度狀態
+        self._update_progress_status("")
+        
         if ok:
             self._log("✓ WIM 掛載成功！")
             self._log(f"掛載位置: {mdir}")
@@ -1238,6 +1309,9 @@ class App(tk.Tk):
             if hasattr(self, 'var_driver_mount_dir'):
                 self.var_driver_mount_dir.set(mdir)
                 self._log(f"✓ 已自動同步掛載路徑到 Driver 分頁: {mdir}")
+            
+            # 自動刷新驅動清單 (任務 3)
+            self.after(100, lambda: self._refresh_all_driver_comboboxes(auto_load_drivers=True))
             
             messagebox.showinfo("掛載成功", f"WIM 已成功掛載到:\n{mdir}\n\n已自動同步路徑到 Driver 分頁")
         else:
@@ -1698,17 +1772,25 @@ class App(tk.Tk):
         self.wim2_available_indices = indices_only.copy()
         
         def update_combo():
-            # 檢查 WIM1 是否已選擇 Index，排除已被使用的
-            used_by_wim1 = self.var_wim_index.get() if hasattr(self, 'var_wim_index') else None
-            available_indices = [idx for idx in indices_only if idx != used_by_wim1]
+            # 檢查是否與 WIM#1 是同一個檔案
+            wim1_path = self.var_wim.get().strip() if hasattr(self, 'var_wim') else ''
+            is_same_wim = self._is_same_file(wim, wim1_path)
+            
+            if is_same_wim:
+                # 同一個 WIM 檔案，需要排除 WIM#1 已選擇的 Index
+                used_by_wim1 = self.var_wim_index.get() if hasattr(self, 'var_wim_index') else None
+                available_indices = [idx for idx in indices_only if idx != used_by_wim1]
+                
+                # 若目前選擇的 Index 已被 WIM1 使用，需要重新選擇
+                current_selection = self.var_wim_index2.get()
+                if current_selection and current_selection == used_by_wim1:
+                    self.var_wim_index2.set('')
+                    self._log(f"⚠️  Index {current_selection} 已被 WIM#1 使用，請重新選擇")
+            else:
+                # 不同的 WIM 檔案，Index 獨立，不需要排除
+                available_indices = indices_only
             
             self.cbo_wim_index2['values'] = available_indices
-            
-            # 若目前選擇的 Index 已被 WIM1 使用，需要重新選擇
-            current_selection = self.var_wim_index2.get()
-            if current_selection and current_selection == used_by_wim1:
-                self.var_wim_index2.set('')
-                self._log(f"⚠️  Index {current_selection} 已被 WIM#1 使用，請重新選擇")
             
             # 若尚未選擇且有可用選項，預設第一個可用的
             if not self.var_wim_index2.get() and available_indices:
@@ -1739,12 +1821,13 @@ class App(tk.Tk):
             messagebox.showwarning("輸入不完整", "請選擇第二個 WIM 與掛載資料夾")
             return
         
-        # Index 衝突檢查
-        if idx and hasattr(self, 'var_wim_index'):
-            wim1_index = self.var_wim_index.get()
+        # Index 衝突檢查 - 只有當 WIM#1 和 WIM#2 是同一個檔案時才需要檢查
+        wim1_path = self.var_wim.get().strip() if hasattr(self, 'var_wim') else ''
+        if idx and self._is_same_file(wim, wim1_path):
+            wim1_index = self.var_wim_index.get() if hasattr(self, 'var_wim_index') else ''
             if idx == wim1_index:
-                self._log(f"❌ Index 衝突：WIM#1 和 WIM#2 都選擇了 Index {idx}")
-                messagebox.showerror("Index 衝突", f"WIM#1 和 WIM#2 不能使用相同的 Index: {idx}\n請選擇不同的 Index")
+                self._log(f"❌ Index 衝突：WIM#1 和 WIM#2 都選擇了同一個 WIM 的 Index {idx}")
+                messagebox.showerror("Index 衝突", f"WIM#1 和 WIM#2 使用相同的 WIM 檔案，\n不能選擇相同的 Index: {idx}\n請選擇不同的 Index")
                 return
             
         # 若未選 Index，嘗試自動解析
@@ -1846,10 +1929,22 @@ class App(tk.Tk):
     
     def _perform_mount2(self, wim: str, index: int, mdir: str, ro: bool):
         """實際執行第二個 WIM 掛載操作"""
-        ok, msg = WIMManager.mount_wim(wim, index, mdir, ro)
+        # 進度回調函數
+        def on_progress(progress: str):
+            self._update_progress_status(f"WIM#2 掛載進度: {progress}")
+        
+        ok, msg = WIMManager.mount_wim(wim, index, mdir, ro, progress_callback=on_progress)
+        
+        # 清除進度狀態
+        self._update_progress_status("")
+        
         if ok:
             self._log("✓ 第二個 WIM 掛載成功！")
             self._log(f"掛載位置: {mdir}")
+            
+            # 自動刷新驅動清單
+            self.after(100, lambda: self._refresh_all_driver_comboboxes(auto_load_drivers=True))
+            
             messagebox.showinfo("掛載成功", f"第二個 WIM 已成功掛載到:\n{mdir}")
             # 更新掛載狀態
             self.after(500, self._on_check_wim2_status)
@@ -1931,7 +2026,15 @@ class App(tk.Tk):
         import time
         time.sleep(1)
         
-        ok, msg = WIMManager.unmount_wim(mdir, commit)
+        # 進度回調函數
+        def on_progress(progress: str):
+            self._update_progress_status(f"WIM#2 卸載進度: {progress}")
+        
+        ok, msg = WIMManager.unmount_wim(mdir, commit, progress_callback=on_progress)
+        
+        # 清除進度狀態
+        self._update_progress_status("")
+        
         if ok:
             self._log("✓ 第二個 WIM 卸載成功！")
             messagebox.showinfo("卸載成功", f"第二個 WIM 已成功卸載\n模式: {commit_text}")
@@ -2008,7 +2111,15 @@ class App(tk.Tk):
         import time
         time.sleep(1)
         
-        ok, msg = WIMManager.unmount_wim(mdir, commit)
+        # 進度回調函數
+        def on_progress(progress: str):
+            self._update_progress_status(f"卸載進度: {progress}")
+        
+        ok, msg = WIMManager.unmount_wim(mdir, commit, progress_callback=on_progress)
+        
+        # 清除進度狀態
+        self._update_progress_status("")
+        
         if ok:
             self._log("✓ WIM 卸載成功！")
             messagebox.showinfo("卸載成功", f"WIM 已成功卸載\n模式: {commit_text}")
@@ -3243,6 +3354,19 @@ class App(tk.Tk):
         except Exception as e:
             self._log(f"✗ 匯出失敗: {e}")
             messagebox.showerror("匯出失敗", f"無法匯出驅動清單:\n{e}")
+
+    # ========== 工具方法 ==========
+    def _is_same_file(self, path1: str, path2: str) -> bool:
+        """檢查兩個路徑是否指向同一個檔案"""
+        if not path1 or not path2:
+            return False
+        try:
+            # 標準化路徑進行比較
+            norm1 = os.path.normpath(os.path.abspath(path1)).lower()
+            norm2 = os.path.normpath(os.path.abspath(path2)).lower()
+            return norm1 == norm2
+        except Exception:
+            return False
 
     # ========== 設定檔 ==========
     def _load_config(self):
