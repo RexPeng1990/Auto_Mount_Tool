@@ -183,7 +183,7 @@ def create_button_group(parent: tk.Widget, buttons: List[dict]) -> ttk.Frame:
         if width:
             btn.configure(width=width)
         
-        padx = (8, 0) if i > 0 else 0
+        padx = (8, 0) if i > 0 else (0, 0)
         btn.pack(side=tk.LEFT, padx=padx)
     
     return frame

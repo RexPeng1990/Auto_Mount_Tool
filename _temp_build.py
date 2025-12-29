@@ -1,3 +1,19 @@
+
+# -*- coding: utf-8 -*-
+import sys
+import os
+
+def _env_check():
+    try:
+        if sys.platform != 'win32':
+            return False
+        return True
+    except:
+        return False
+
+if not _env_check():
+    sys.exit(1)
+
 # !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -51,8 +67,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("WIM/Driver 管理工具")
-        self.geometry("750x660")
-        self.minsize(750, 640)
+        self.geometry("750x600")
+        self.minsize(750, 580)
         
         # 初始化 log 檔案
         self._init_log_file()
@@ -139,10 +155,14 @@ class App(tk.Tk):
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.txt.configure(state=tk.DISABLED)
 
-        # 開發者署名（右下角，簡約風格）
-        developer_label = ttk.Label(main_frame, text="Developer: RexPeng", 
-                                   font=('Segoe UI', 8), foreground='#888888')
-        developer_label.pack(side=tk.BOTTOM, anchor='e', padx=(0, 6), pady=(2, 3))
+        # 版權資訊標籤（右下角）
+        copyright_frame = ttk.Frame(main_frame)
+        copyright_frame.pack(fill=tk.X)
+        
+        # 使用 Frame 來控制對齊
+        copyright_label = tk.Label(copyright_frame, text="Developed by RexPeng", 
+                                 font=('Arial', 8), fg='gray', anchor='e')
+        copyright_label.pack(side=tk.RIGHT, padx=(0, 8), pady=(2, 4))
 
     # WIM 掛載分頁
     def _build_wim1_tab(self, parent: tk.Misc):
@@ -1196,25 +1216,17 @@ class App(tk.Tk):
         self.wim1_available_indices = indices_only.copy()
         
         def update_combo():
-            # 檢查是否與 WIM#2 是同一個檔案
-            wim2_path = self.var_wim2.get().strip() if hasattr(self, 'var_wim2') else ''
-            is_same_wim = self._is_same_file(wim, wim2_path)
-            
-            if is_same_wim:
-                # 同一個 WIM 檔案，需要排除 WIM#2 已選擇的 Index
-                used_by_wim2 = self.var_wim_index2.get() if hasattr(self, 'var_wim_index2') else None
-                available_indices = [idx for idx in indices_only if idx != used_by_wim2]
-                
-                # 若目前選擇的 Index 已被 WIM2 使用，需要重新選擇
-                current_selection = self.var_wim_index.get()
-                if current_selection and current_selection == used_by_wim2:
-                    self.var_wim_index.set('')
-                    self._log(f"⚠️  Index {current_selection} 已被 WIM#2 使用，請重新選擇")
-            else:
-                # 不同的 WIM 檔案，Index 獨立，不需要排除
-                available_indices = indices_only
+            # 檢查 WIM2 是否已選擇 Index，排除已被使用的
+            used_by_wim2 = self.var_wim_index2.get() if hasattr(self, 'var_wim_index2') else None
+            available_indices = [idx for idx in indices_only if idx != used_by_wim2]
             
             self.cbo_wim_index['values'] = available_indices
+            
+            # 若目前選擇的 Index 已被 WIM2 使用，需要重新選擇
+            current_selection = self.var_wim_index.get()
+            if current_selection and current_selection == used_by_wim2:
+                self.var_wim_index.set('')
+                self._log(f"⚠️  Index {current_selection} 已被 WIM#2 使用，請重新選擇")
             
             # 若尚未選擇且有可用選項，預設第一個可用的
             if not self.var_wim_index.get() and available_indices:
