@@ -325,14 +325,20 @@ class WIMSlot(ctk.CTkFrame):
         self._on_log(f"正在讀取 WIM 資訊: {wim_path}")
         
         def do_read():
-            result = WIMManager.get_image_info(wim_path)
+            success, images, error = WIMManager.get_wim_images(wim_path)
+            result = {"success": success, "images": images, "error": error}
             
             # 取得另一個槽位使用的 Index（如果是相同檔案）
             exclude_indices = []
             if self._get_other_slot_info:
                 other_info = self._get_other_slot_info()
                 if other_info:
-                    other_path, other_index = other_info
+                    # 支援兩種格式：tuple (wim_path, index) 或 dict {wim_file, index, ...}
+                    if isinstance(other_info, dict):
+                        other_path = other_info.get("wim_file", "")
+                        other_index = other_info.get("index", "")
+                    else:
+                        other_path, other_index = other_info
                     # 檢查是否為同一檔案
                     if self._is_same_file(wim_path, other_path) and other_index:
                         exclude_indices.append(other_index)
@@ -465,21 +471,22 @@ class WIMSlot(ctk.CTkFrame):
         self.btn_mount.set_loading(True)
         
         def do_mount():
-            result = WIMManager.mount_wim(wim_path, mount_dir, index, readonly)
-            self.after(0, lambda: self._mount_complete(result))
+            # mount_wim(wim_path, index, mount_dir, readonly) -> (success, message)
+            success, message = WIMManager.mount_wim(wim_path, index, mount_dir, readonly)
+            self.after(0, lambda: self._mount_complete(success, message))
         
         threading.Thread(target=do_mount, daemon=True).start()
     
-    def _mount_complete(self, result: dict):
+    def _mount_complete(self, success: bool, message: str):
         """掛載完成回調"""
         self.btn_mount.set_loading(False)
         
-        if result.get("success"):
+        if success:
             self._on_log(f"✓ WIM#{self.slot_number} 掛載成功")
             self._update_status("已掛載", "success")
         else:
-            self._on_log(f"✗ WIM#{self.slot_number} 掛載失敗: {result.get('error')}")
-            messagebox.showerror("掛載失敗", result.get("error", "未知錯誤"))
+            self._on_log(f"✗ WIM#{self.slot_number} 掛載失敗: {message}")
+            messagebox.showerror("掛載失敗", message or "未知錯誤")
     
     def _on_unmount(self):
         """卸載 WIM"""
@@ -498,20 +505,21 @@ class WIMSlot(ctk.CTkFrame):
         self.btn_unmount.set_loading(True)
         
         def do_unmount():
-            result = WIMManager.unmount_wim(mount_dir, commit)
-            self.after(0, lambda: self._unmount_complete(result))
+            # unmount_wim(mount_dir, commit) -> (success, message)
+            success, message = WIMManager.unmount_wim(mount_dir, commit)
+            self.after(0, lambda: self._unmount_complete(success, message))
         
         threading.Thread(target=do_unmount, daemon=True).start()
     
-    def _unmount_complete(self, result: dict):
+    def _unmount_complete(self, success: bool, message: str):
         """卸載完成回調"""
         self.btn_unmount.set_loading(False)
         
-        if result.get("success"):
+        if success:
             self._on_log(f"✓ WIM#{self.slot_number} 卸載成功")
             self._update_status("未掛載", "default")
         else:
-            self._on_log(f"✗ WIM#{self.slot_number} 卸載失敗: {result.get('error')}")
+            self._on_log(f"✗ WIM#{self.slot_number} 卸載失敗: {message}")
             messagebox.showerror("卸載失敗", result.get("error", "未知錯誤"))
     
     def _on_close_explorer(self):
@@ -527,18 +535,19 @@ class WIMSlot(ctk.CTkFrame):
         self._on_log(f"開始 WIM#{self.slot_number} 智能修復...")
         
         def do_fix():
-            result = WIMManager.smart_cleanup_and_fix(mount_dir if mount_dir else None)
-            self.after(0, lambda: self._fix_complete(result))
+            # smart_cleanup_and_fix() -> (success, message)
+            success, message = WIMManager.smart_cleanup_and_fix()
+            self.after(0, lambda: self._fix_complete(success, message))
         
         threading.Thread(target=do_fix, daemon=True).start()
     
-    def _fix_complete(self, result: dict):
+    def _fix_complete(self, success: bool, message: str):
         """修復完成回調"""
-        if result.get("success"):
+        if success:
             self._on_log(f"✓ WIM#{self.slot_number} 修復完成")
             self._on_check_status()
         else:
-            self._on_log(f"✗ 修復過程有錯誤: {result.get('error')}")
+            self._on_log(f"✗ 修復過程有錯誤: {message}")
     
     # === 公開方法 ===
     

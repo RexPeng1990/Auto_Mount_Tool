@@ -106,6 +106,56 @@ class DriverManager:
             return True, "驅動程式萃取完成"
         return False, err or out
 
+    @staticmethod
+    def export_selected_drivers(mount_dir: str, export_dir: str, driver_names: list[str],
+                                 callback=None) -> tuple[int, int, list[str]]:
+        """
+        從已掛載的映像中萃取選定的驅動程式
+        
+        Args:
+            mount_dir: 映像掛載路徑
+            export_dir: 萃取輸出目錄
+            driver_names: 驅動程式名稱列表 (Published Name，如 oem0.inf)
+            callback: 進度回調函數 (current, total, name, success, msg)
+        
+        Returns:
+            (success_count, fail_count, errors)
+        """
+        m = DriverManager._norm_path(mount_dir)
+        e = DriverManager._norm_path(export_dir)
+        
+        # 確保匯出目錄存在
+        os.makedirs(e, exist_ok=True)
+        
+        success_count = 0
+        fail_count = 0
+        errors = []
+        total = len(driver_names)
+        
+        for i, name in enumerate(driver_names, 1):
+            # DISM /Export-Driver 支援 /Driver 參數來指定特定驅動
+            args = [
+                "/Export-Driver",
+                f"/Image:{m}",
+                f"/Destination:{e}",
+                f"/Driver:{name}"
+            ]
+            
+            rc, out, err = DriverManager._run_dism(args)
+            
+            if rc == 0:
+                success_count += 1
+                if callback:
+                    callback(i, total, name, True, "")
+            else:
+                fail_count += 1
+                error_msg = err or out
+                errors.append(f"{name}: {error_msg}")
+                if callback:
+                    callback(i, total, name, False, error_msg)
+        
+        return success_count, fail_count, errors
+
     # ==================== 驅動程式移除 ====================
 
     @staticmethod

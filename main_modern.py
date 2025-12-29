@@ -160,6 +160,9 @@ class ModernApp(ctk.CTk):
         )
         self.main_scroll.pack(fill="both", expand=True, padx=12, pady=(8, 0))
         
+        # 提升滾動速度（預設太慢）
+        self._setup_scroll_speed(self.main_scroll)
+        
         # === 1. WIM 掛載區塊 ===
         self.section_wim = CollapsibleSection(
             self.main_scroll,
@@ -453,6 +456,34 @@ class ModernApp(ctk.CTk):
             slot = self.wim_slots[other_idx]
             return slot.get_config()  # 使用公開方法，符合封裝原則
         return {}
+    
+    def _setup_scroll_speed(self, scrollable_frame, speed_multiplier: int = 3):
+        """
+        設定滾動速度
+        
+        Args:
+            scrollable_frame: CTkScrollableFrame 實例
+            speed_multiplier: 速度倍率（預設 3 倍）
+        """
+        # 取得內部的 canvas
+        try:
+            # CTkScrollableFrame 內部使用 _parent_canvas
+            canvas = scrollable_frame._parent_canvas
+            
+            def on_mousewheel(event):
+                # Windows: event.delta 通常是 120 或 -120
+                # 將滾動量乘以倍率
+                canvas.yview_scroll(int(-1 * (event.delta / 120) * speed_multiplier), "units")
+            
+            # 綁定滾輪事件到 canvas
+            canvas.bind("<MouseWheel>", on_mousewheel)
+            
+            # 也綁定到內部框架
+            scrollable_frame.bind("<MouseWheel>", on_mousewheel)
+            
+        except AttributeError:
+            # 如果取不到 canvas，忽略
+            pass
     
     def _on_closing(self):
         """視窗關閉事件"""

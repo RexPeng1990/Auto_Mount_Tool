@@ -113,6 +113,12 @@ class DriverTable(ctk.CTkFrame):
         self.tree.bind("<ButtonRelease-1>", self._on_row_click)
         self.tree.bind("<Double-1>", self._on_double_click)
         
+        # 滾輪事件 - 讓 Treeview 自己處理滾輪，不傳播到父視窗
+        self.tree.bind("<MouseWheel>", self._on_tree_mousewheel)
+        self.tree.bind("<Enter>", self._on_tree_enter)
+        self.tree.bind("<Leave>", self._on_tree_leave)
+        self._tree_has_focus = False
+        
         # 滾動條
         scroll_y = ctk.CTkScrollbar(tree_container, command=self.tree.yview)
         scroll_x = ctk.CTkScrollbar(tree_container, orientation="horizontal", command=self.tree.xview)
@@ -181,6 +187,34 @@ class DriverTable(ctk.CTkFrame):
                     self._show_driver_details(driver)
             except:
                 pass
+    
+    def _on_tree_mousewheel(self, event):
+        """處理 Treeview 的滾輪事件"""
+        # 滾動 Treeview
+        self.tree.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        # 返回 "break" 阻止事件繼續傳播到父視窗
+        return "break"
+    
+    def _on_tree_enter(self, event):
+        """滑鼠進入 Treeview"""
+        self._tree_has_focus = True
+        # 綁定全域滾輪事件到 Treeview
+        self.winfo_toplevel().bind("<MouseWheel>", self._on_global_mousewheel)
+    
+    def _on_tree_leave(self, event):
+        """滑鼠離開 Treeview"""
+        self._tree_has_focus = False
+        # 解除綁定
+        try:
+            self.winfo_toplevel().unbind("<MouseWheel>")
+        except:
+            pass
+    
+    def _on_global_mousewheel(self, event):
+        """全域滾輪事件處理"""
+        if self._tree_has_focus:
+            self.tree.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            return "break"
     
     def _show_driver_details(self, driver: Dict):
         """顯示驅動程式詳情"""
@@ -629,25 +663,33 @@ class DriverPage(ctk.CTkFrame):
             return
         
         selected = self.driver_table.get_selected_drivers()
+        selected_names = self.driver_table.get_selected_published_names()
         
         # 選擇輸出目錄
         output_dir = filedialog.askdirectory(title="選擇萃取輸出目錄")
         if not output_dir:
             return
         
-        self._on_log(f"正在萃取驅動程式到: {output_dir}")
         self.btn_extract.set_loading(True)
         
         def do_extract():
-            # 萃取全部或選取的
             if not selected:
                 # 萃取全部
+                self._on_log(f"正在萃取所有驅動程式到: {output_dir}")
                 success, msg = DriverManager.export_drivers_from_offline_image(mount_dir, output_dir)
+                self.after(0, lambda: self._extract_complete(success, msg, output_dir))
             else:
-                # TODO: 實作選擇性萃取
-                success, msg = DriverManager.export_drivers_from_offline_image(mount_dir, output_dir)
-            
-            self.after(0, lambda: self._extract_complete(success, msg, output_dir))
+                # 萃取選定的驅動
+                self._on_log(f"正在萃取 {len(selected)} 個驅動程式到: {output_dir}")
+                
+                def callback(current, total, name, success, msg):
+                    status = "✓" if success else "✗"
+                    self.after(0, lambda: self._on_log(f"  {status} [{current}/{total}] {name}"))
+                
+                success_count, fail_count, errors = DriverManager.export_selected_drivers(
+                    mount_dir, output_dir, selected_names, callback
+                )
+                self.after(0, lambda: self._extract_selected_complete(success_count, fail_count, errors, output_dir))
         
         threading.Thread(target=do_extract, daemon=True).start()
     
@@ -662,6 +704,21 @@ class DriverPage(ctk.CTkFrame):
         else:
             self._on_log(f"✗ 萃取失敗: {message}")
             messagebox.showerror("錯誤", f"萃取失敗: {message}")
+    
+    def _extract_selected_complete(self, success_count: int, fail_count: int, errors: List[str], output_dir: str):
+        """選擇性萃取完成"""
+        self.btn_extract.set_loading(False)
+        
+        self._on_log(f"萃取完成: 成功 {success_count}，失敗 {fail_count}")
+        
+        if fail_count > 0:
+            error_msg = "\n".join(errors[:5])
+            if len(errors) > 5:
+                error_msg += f"\n... 還有 {len(errors) - 5} 個錯誤"
+            messagebox.showwarning("部分失敗", f"成功: {success_count}\n失敗: {fail_count}\n\n{error_msg}")
+        else:
+            if messagebox.askyesno("完成", f"已成功萃取 {success_count} 個驅動程式！\n是否開啟輸出目錄？"):
+                os.startfile(output_dir)
     
     def _on_add_driver(self):
         """新增驅動程式"""
