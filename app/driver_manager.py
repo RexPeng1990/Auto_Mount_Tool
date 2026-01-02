@@ -5,6 +5,7 @@ Driver 管理模組 - 使用 DISM 進行驅動程式離線安裝/移除操作
 
 import os
 import re
+import shutil
 import subprocess
 
 
@@ -107,7 +108,7 @@ class DriverManager:
         return False, err or out
 
     @staticmethod
-    def export_selected_drivers(mount_dir: str, export_dir: str, driver_names: list[str],
+    def export_selected_drivers(mount_dir: str, export_dir: str, drivers: list[dict],
                                  callback=None) -> tuple[int, int, list[str]]:
         """
         從已掛載的映像中萃取選定的驅動程式
@@ -115,7 +116,7 @@ class DriverManager:
         Args:
             mount_dir: 映像掛載路徑
             export_dir: 萃取輸出目錄
-            driver_names: 驅動程式名稱列表 (Published Name，如 oem0.inf)
+            drivers: 驅動程式資訊列表 (包含 PublishedName, OriginalFileName 等)
             callback: 進度回調函數 (current, total, name, success, msg)
         
         Returns:
@@ -130,26 +131,65 @@ class DriverManager:
         success_count = 0
         fail_count = 0
         errors = []
-        total = len(driver_names)
+        total = len(drivers)
         
-        for i, name in enumerate(driver_names, 1):
-            # DISM /Export-Driver 支援 /Driver 參數來指定特定驅動
-            args = [
-                "/Export-Driver",
-                f"/Image:{m}",
-                f"/Destination:{e}",
-                f"/Driver:{name}"
-            ]
+        for i, driver_info in enumerate(drivers, 1):
+            name = driver_info.get("PublishedName", f"driver_{i}")
             
-            rc, out, err = DriverManager._run_dism(args)
+            # 除錯：輸出驅動資訊
+            print(f"[DEBUG] Driver info for {name}: {driver_info}")
             
-            if rc == 0:
+            # 取得驅動的原始檔案名稱 (如 netrtwlane.inf)
+            original_name = driver_info.get("OriginalFileName", "")
+            if not original_name:
+                fail_count += 1
+                error_msg = f"無法取得驅動原始檔案名稱 (keys: {list(driver_info.keys())})"
+                errors.append(f"{name}: {error_msg}")
+                if callback:
+                    callback(i, total, name, False, error_msg)
+                continue
+            
+            # 驅動程式存放在 mount_dir\Windows\System32\DriverStore\FileRepository 中
+            driver_store = os.path.join(m, "Windows", "System32", "DriverStore", "FileRepository")
+            
+            # 尋找驅動資料夾 (資料夾名稱通常以原始檔案名稱開頭，不含 .inf)
+            base_name = original_name.replace(".inf", "").lower()
+            driver_folder = None
+            
+            try:
+                if os.path.isdir(driver_store):
+                    for folder in os.listdir(driver_store):
+                        if folder.lower().startswith(base_name):
+                            driver_folder = os.path.join(driver_store, folder)
+                            break
+            except Exception as ex:
+                fail_count += 1
+                error_msg = f"搜尋驅動資料夾時發生錯誤: {str(ex)}"
+                errors.append(f"{name}: {error_msg}")
+                if callback:
+                    callback(i, total, name, False, error_msg)
+                continue
+            
+            if not driver_folder or not os.path.isdir(driver_folder):
+                fail_count += 1
+                error_msg = f"找不到驅動資料夾 (搜尋: {base_name}*)"
+                errors.append(f"{name}: {error_msg}")
+                if callback:
+                    callback(i, total, name, False, error_msg)
+                continue
+            
+            # 複製驅動資料夾到輸出目錄
+            try:
+                dest_folder = os.path.join(e, os.path.basename(driver_folder))
+                if os.path.exists(dest_folder):
+                    shutil.rmtree(dest_folder)
+                shutil.copytree(driver_folder, dest_folder)
                 success_count += 1
                 if callback:
                     callback(i, total, name, True, "")
-            else:
+            except Exception as ex:
                 fail_count += 1
-                error_msg = err or out
+                error_msg = f"複製驅動時發生錯誤: {str(ex)}"
                 errors.append(f"{name}: {error_msg}")
                 if callback:
                     callback(i, total, name, False, error_msg)

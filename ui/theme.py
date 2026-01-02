@@ -109,47 +109,47 @@ class Colors:
         shadow="#00000040",
     )
     
-    # === 淺色主題 (Light Mode) ===
+    # === 淺色主題 (Light Mode) - 白色+粉藍風格 ===
     LIGHT = ColorScheme(
-        # 主要顏色 - 藍色系
-        primary="#2563EB",
-        primary_hover="#1D4ED8",
-        primary_disabled="#93C5FD",
+        # 主要顏色 - 粉藍色系
+        primary="#64b5f6",
+        primary_hover="#42a5f5",
+        primary_disabled="#bbdefb",
         
-        # 次要顏色 - 灰色系
-        secondary="#6B7280",
-        secondary_hover="#4B5563",
+        # 次要顏色 - 淺灰色系
+        secondary="#b0bec5",
+        secondary_hover="#90a4ae",
         
-        # 狀態顏色
-        success="#16A34A",
-        success_hover="#15803D",
-        warning="#D97706",
-        warning_hover="#B45309",
-        danger="#DC2626",
-        danger_hover="#B91C1C",
-        info="#0891B2",
-        info_hover="#0E7490",
+        # 狀態顏色 - 柔和粉彩色調
+        success="#81c784",
+        success_hover="#66bb6a",
+        warning="#ffb74d",
+        warning_hover="#ffa726",
+        danger="#e57373",
+        danger_hover="#ef5350",
+        info="#4fc3f7",
+        info_hover="#29b6f6",
         
-        # 背景顏色
-        bg_primary="#F8FAFC",      # 最淺背景
-        bg_secondary="#F1F5F9",    # 次淺背景
-        bg_tertiary="#E2E8F0",     # 第三層背景
-        bg_card="#FFFFFF",         # 卡片背景
-        bg_hover="#F1F5F9",        # 懸停背景
+        # 背景顏色 - 純淨白色系
+        bg_primary="#ffffff",      # 純白背景
+        bg_secondary="#f8f9fa",    # 極淺灰背景
+        bg_tertiary="#f1f3f4",     # 淺灰背景
+        bg_card="#ffffff",         # 卡片背景
+        bg_hover="#e3f2fd",        # 粉藍懸停背景
         
         # 文字顏色
-        text_primary="#0F172A",
-        text_secondary="#475569",
-        text_muted="#94A3B8",
-        text_inverse="#F8FAFC",
+        text_primary="#37474f",
+        text_secondary="#546e7a",
+        text_muted="#90a4ae",
+        text_inverse="#ffffff",
         
         # 邊框顏色
-        border="#E2E8F0",
-        border_hover="#CBD5E1",
-        border_focus="#2563EB",
+        border="#e0e0e0",
+        border_hover="#bdbdbd",
+        border_focus="#64b5f6",
         
         # 陰影
-        shadow="#00000015",
+        shadow="#00000008",
     )
 
 
@@ -231,8 +231,8 @@ class ThemeManager:
     """
     
     _instance: Optional['ThemeManager'] = None
-    _current_theme: str = "dark"
-    _colors: ColorScheme = Colors.DARK
+    _current_theme: str = "light"
+    _colors: ColorScheme = Colors.LIGHT
     
     def __new__(cls) -> 'ThemeManager':
         if cls._instance is None:
@@ -247,7 +247,7 @@ class ThemeManager:
     
     def _setup_customtkinter(self):
         """設定 CustomTkinter 預設值"""
-        ctk.set_appearance_mode("dark")
+        ctk.set_appearance_mode("light")
         ctk.set_default_color_theme("blue")
     
     @property
@@ -358,8 +358,9 @@ class ThemeManager:
         """取得輸入框樣式"""
         c = self._colors
         return {
-            "fg_color": c.bg_secondary,
+            "fg_color": c.bg_card,  # 使用卡片背景色（白色）
             "border_color": c.border,
+            "border_width": 1,
             "text_color": c.text_primary,
             "placeholder_text_color": c.text_muted,
             "corner_radius": Spacing.RADIUS_MD,

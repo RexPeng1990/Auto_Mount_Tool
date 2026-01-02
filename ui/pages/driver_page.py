@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from typing import Optional, Callable, Any, List, Dict
 import os
+import re
 import threading
 
 from ui.theme import ThemeManager, Fonts, Spacing, theme_manager
@@ -18,6 +19,20 @@ from ui.components import (
     StatusBadge, FormField, SectionTitle, ModernProgressBar
 )
 from app.driver_manager import DriverManager
+from app.config import DRIVER_EXPORT_DIR, ensure_output_dirs
+
+# 用於追蹤當前選擇的目標
+_DRIVER_PAGE_CURRENT_TARGET = ""
+
+
+def natural_sort_key(s: str) -> list:
+    """
+    自然排序 key 函數
+    將字串中的數字部分轉換為整數進行比較
+    例如: "oem10.inf" -> ["oem", 10, ".inf"]
+    """
+    return [int(text) if text.isdigit() else text.lower() 
+            for text in re.split(r'(\d+)', s)]
 
 
 class DriverTable(ctk.CTkFrame):
@@ -245,17 +260,19 @@ class DriverTable(ctk.CTkFrame):
         
         # 排序
         if self._sort_column:
+            # 欄位對應的資料 key（與 _refresh_tree 中 values 順序一致）
             key_map = {
-                "name": "OriginalFileName",
-                "inf": "PublishedName",
+                "name": "PublishedName",      # 驅動名稱 -> oem*.inf
+                "inf": "OriginalFileName",    # INF 檔案 -> 原始檔名
                 "provider": "Provider",
                 "version": "Version",
                 "date": "Date",
                 "class": "ClassName"
             }
             key = key_map.get(self._sort_column, self._sort_column)
+            # 使用自然排序，讓 oem2 排在 oem10 前面
             self._filtered_drivers.sort(
-                key=lambda d: str(d.get(key, "")).lower(),
+                key=lambda d: natural_sort_key(str(d.get(key, ""))),
                 reverse=self._sort_reverse
             )
         
@@ -274,12 +291,13 @@ class DriverTable(ctk.CTkFrame):
             self.tree.delete(item)
         
         # 重新填入
+        # 欄位順序: select, name(PublishedName), inf(OriginalFileName), provider, version, date, class
         for i, driver in enumerate(self._filtered_drivers):
             selected = "☑" if i in self._selected_indices else "☐"
             values = (
                 selected,
-                driver.get("OriginalFileName", ""),
-                driver.get("PublishedName", ""),
+                driver.get("PublishedName", ""),     # 驅動名稱 (oem*.inf)
+                driver.get("OriginalFileName", ""),  # INF 檔案 (原始檔名)
                 driver.get("Provider", ""),
                 driver.get("Version", ""),
                 driver.get("Date", ""),
@@ -294,8 +312,8 @@ class DriverTable(ctk.CTkFrame):
             selected = "☑" if idx in self._selected_indices else "☐"
             values = (
                 selected,
-                driver.get("OriginalFileName", ""),
-                driver.get("PublishedName", ""),
+                driver.get("PublishedName", ""),     # 驅動名稱 (oem*.inf)
+                driver.get("OriginalFileName", ""),  # INF 檔案 (原始檔名)
                 driver.get("Provider", ""),
                 driver.get("Version", ""),
                 driver.get("Date", ""),
@@ -448,6 +466,13 @@ class DriverPage(ctk.CTkFrame):
             values=[""],
             font=Fonts.to_tuple(Fonts.BODY),
             dropdown_font=Fonts.to_tuple(Fonts.BODY),
+            fg_color="#ffffff",
+            border_color="#e0e0e0",
+            border_width=1,
+            button_color="#e0e0e0",
+            button_hover_color="#bdbdbd",
+            dropdown_fg_color="#ffffff",
+            dropdown_hover_color="#e3f2fd",
             command=self._on_target_changed
         )
         self.combo_target.pack(side="left", padx=(8, 0))
@@ -502,18 +527,6 @@ class DriverPage(ctk.CTkFrame):
         )
         self.driver_table.pack(fill="both", expand=True)
         
-        # === 狀態列 ===
-        status_frame = ctk.CTkFrame(self, fg_color="transparent")
-        status_frame.pack(fill="x", padx=20, pady=(0, 8))
-        
-        self.lbl_status = ctk.CTkLabel(
-            status_frame,
-            textvariable=self.var_status,
-            font=Fonts.to_tuple(Fonts.CAPTION),
-            text_color=theme_manager.colors.text_muted
-        )
-        self.lbl_status.pack(side="left")
-        
         # === 操作按鈕區 ===
         btn_card = ModernCard(self, padding=12)
         btn_card.pack(fill="x", padx=20, pady=(0, 20))
@@ -557,6 +570,15 @@ class DriverPage(ctk.CTkFrame):
         right_btns = ctk.CTkFrame(btn_row, fg_color="transparent")
         right_btns.pack(side="right")
         
+        # 狀態文字
+        self.lbl_status = ctk.CTkLabel(
+            right_btns,
+            textvariable=self.var_status,
+            font=Fonts.to_tuple(Fonts.CAPTION),
+            text_color=theme_manager.colors.text_muted
+        )
+        self.lbl_status.pack(side="left", padx=(0, 16))
+        
         ModernButton(
             right_btns,
             text="查看詳情",
@@ -580,14 +602,17 @@ class DriverPage(ctk.CTkFrame):
     
     def _on_target_changed(self, selection: str):
         """目標映像選擇變更"""
+        global _DRIVER_PAGE_CURRENT_TARGET
+        
+        # 先清空前一次的結果
+        self.driver_table.clear()
+        self.var_status.set("讀取中...")
+        
         # 解析選擇
-        mount_dir = ""
-        if selection:
-            # 格式: "WIM#1 - path (status)" 或類似
-            parts = selection.split(" - ")
-            if len(parts) >= 2:
-                path_part = parts[1].split(" (")[0]
-                mount_dir = path_part.strip()
+        mount_dir = self._extract_mount_dir(selection)
+        
+        # 更新追蹤變數
+        _DRIVER_PAGE_CURRENT_TARGET = mount_dir
         
         if mount_dir and os.path.isdir(mount_dir):
             # 檢查掛載狀態
@@ -663,50 +688,34 @@ class DriverPage(ctk.CTkFrame):
             return
         
         selected = self.driver_table.get_selected_drivers()
-        selected_names = self.driver_table.get_selected_published_names()
         
-        # 選擇輸出目錄
-        output_dir = filedialog.askdirectory(title="選擇萃取輸出目錄")
-        if not output_dir:
+        if not selected:
+            messagebox.showinfo("提示", "請先勾選要萃取的驅動程式")
             return
+        
+        # 自動使用預設輸出目錄
+        ensure_output_dirs()
+        output_dir = DRIVER_EXPORT_DIR
         
         self.btn_extract.set_loading(True)
         
         def do_extract():
-            if not selected:
-                # 萃取全部
-                self._on_log(f"正在萃取所有驅動程式到: {output_dir}")
-                success, msg = DriverManager.export_drivers_from_offline_image(mount_dir, output_dir)
-                self.after(0, lambda: self._extract_complete(success, msg, output_dir))
-            else:
-                # 萃取選定的驅動
-                self._on_log(f"正在萃取 {len(selected)} 個驅動程式到: {output_dir}")
-                
-                def callback(current, total, name, success, msg):
-                    status = "✓" if success else "✗"
-                    self.after(0, lambda: self._on_log(f"  {status} [{current}/{total}] {name}"))
-                
-                success_count, fail_count, errors = DriverManager.export_selected_drivers(
-                    mount_dir, output_dir, selected_names, callback
-                )
-                self.after(0, lambda: self._extract_selected_complete(success_count, fail_count, errors, output_dir))
+            # 萃取選定的驅動
+            self._on_log(f"正在萃取 {len(selected)} 個驅動程式到: {output_dir}")
+            
+            def callback(current, total, name, success, msg):
+                status = "✓" if success else "✗"
+                self.after(0, lambda: self._on_log(f"  {status} [{current}/{total}] {name}"))
+            
+            success_count, fail_count, errors = DriverManager.export_selected_drivers(
+                mount_dir, output_dir, selected, callback
+            )
+            self.after(0, lambda: self._extract_complete(success_count, fail_count, errors, output_dir))
         
         threading.Thread(target=do_extract, daemon=True).start()
     
-    def _extract_complete(self, success: bool, message: str, output_dir: str):
+    def _extract_complete(self, success_count: int, fail_count: int, errors: List[str], output_dir: str):
         """萃取完成"""
-        self.btn_extract.set_loading(False)
-        
-        if success:
-            self._on_log(f"✓ 驅動程式萃取完成")
-            if messagebox.askyesno("完成", "驅動程式萃取完成！\n是否開啟輸出目錄？"):
-                os.startfile(output_dir)
-        else:
-            self._on_log(f"✗ 萃取失敗: {message}")
-            messagebox.showerror("錯誤", f"萃取失敗: {message}")
-    
-    def _extract_selected_complete(self, success_count: int, fail_count: int, errors: List[str], output_dir: str):
-        """選擇性萃取完成"""
         self.btn_extract.set_loading(False)
         
         self._on_log(f"萃取完成: 成功 {success_count}，失敗 {fail_count}")
@@ -717,156 +726,63 @@ class DriverPage(ctk.CTkFrame):
                 error_msg += f"\n... 還有 {len(errors) - 5} 個錯誤"
             messagebox.showwarning("部分失敗", f"成功: {success_count}\n失敗: {fail_count}\n\n{error_msg}")
         else:
-            if messagebox.askyesno("完成", f"已成功萃取 {success_count} 個驅動程式！\n是否開啟輸出目錄？"):
+            if messagebox.askyesno("完成", f"已成功萃取 {success_count} 個驅動程式到：\n{output_dir}\n\n是否開啟輸出目錄？"):
                 os.startfile(output_dir)
     
     def _on_add_driver(self):
-        """新增驅動程式"""
+        """新增驅動程式 - 簡化操作：直接選擇檔案或資料夾"""
         mount_dir = self._get_current_mount_dir()
         if not mount_dir:
             messagebox.showwarning("提示", "請先選擇目標映像")
             return
         
-        # 彈出新增驅動對話框
-        self._show_add_driver_dialog(mount_dir)
-    
-    def _show_add_driver_dialog(self, mount_dir: str):
-        """顯示新增驅動對話框"""
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("新增驅動程式")
-        dialog.geometry("500x280")
-        dialog.transient(self.winfo_toplevel())
-        dialog.grab_set()
+        # 詢問選擇方式
+        choice = messagebox.askquestion(
+            "新增驅動程式",
+            "選擇驅動來源類型：\n\n" +
+            "「是」= 選擇資料夾（自動搜尋所有 .inf）\n" +
+            "「否」= 選擇單一 .inf 檔案",
+            icon="question"
+        )
         
-        # 居中
-        dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() - 500) // 2
-        y = (dialog.winfo_screenheight() - 280) // 2
-        dialog.geometry(f"+{x}+{y}")
-        
-        # 內容
-        content = ctk.CTkFrame(dialog, fg_color="transparent")
-        content.pack(fill="both", expand=True, padx=20, pady=20)
-        
-        ctk.CTkLabel(
-            content,
-            text="新增驅動程式",
-            font=Fonts.to_tuple(Fonts.TITLE_SMALL)
-        ).pack(anchor="w", pady=(0, 16))
-        
-        # 來源路徑
-        var_source = ctk.StringVar()
-        
-        source_frame = ctk.CTkFrame(content, fg_color="transparent")
-        source_frame.pack(fill="x", pady=(0, 12))
-        
-        ctk.CTkLabel(
-            source_frame,
-            text="驅動來源",
-            font=Fonts.to_tuple(Fonts.LABEL),
-            width=80,
-            anchor="w"
-        ).pack(side="left")
-        
-        entry_source = ModernEntry(source_frame, width=280)
-        entry_source.pack(side="left", padx=(8, 0))
-        entry_source.configure(textvariable=var_source)
-        
-        def browse_file():
+        if choice == "yes":
+            # 選擇資料夾
+            path = filedialog.askdirectory(title="選擇驅動程式資料夾")
+            if path:
+                self._do_add_driver(mount_dir, path, recurse=True, force=False)
+        else:
+            # 選擇檔案
             path = filedialog.askopenfilename(
                 title="選擇驅動程式",
                 filetypes=[("INF 檔案", "*.inf"), ("所有檔案", "*.*")]
             )
             if path:
-                var_source.set(path)
+                self._do_add_driver(mount_dir, path, recurse=False, force=False)
+    
+    def _do_add_driver(self, mount_dir: str, source_path: str, recurse: bool, force: bool):
+        """執行新增驅動"""
+        self._on_log(f"正在安裝驅動: {source_path}")
+        self.btn_add.set_loading(True)
         
-        def browse_folder():
-            path = filedialog.askdirectory(title="選擇驅動資料夾")
-            if path:
-                var_source.set(path)
+        def add_thread():
+            success, msg = DriverManager.add_driver_to_offline_image(
+                mount_dir, source_path,
+                recurse=recurse,
+                force_unsigned=force
+            )
+            self.after(0, lambda: add_complete(success, msg))
         
-        ModernButton(
-            source_frame,
-            text="檔案",
-            variant="outline",
-            size="sm",
-            command=browse_file
-        ).pack(side="left", padx=(8, 0))
+        def add_complete(success, msg):
+            self.btn_add.set_loading(False)
+            if success:
+                self._on_log("✓ 驅動程式安裝完成")
+                messagebox.showinfo("完成", "驅動程式安裝完成！")
+                self._refresh_driver_list()
+            else:
+                self._on_log(f"✗ 安裝失敗: {msg}")
+                messagebox.showerror("錯誤", f"安裝失敗: {msg}")
         
-        ModernButton(
-            source_frame,
-            text="資料夾",
-            variant="outline",
-            size="sm",
-            command=browse_folder
-        ).pack(side="left", padx=(4, 0))
-        
-        # 選項
-        var_recurse = ctk.BooleanVar(value=True)
-        var_force = ctk.BooleanVar(value=False)
-        
-        opt_frame = ctk.CTkFrame(content, fg_color="transparent")
-        opt_frame.pack(fill="x", pady=(0, 16))
-        
-        ctk.CTkCheckBox(
-            opt_frame,
-            text="遞迴搜尋子資料夾",
-            variable=var_recurse,
-            font=Fonts.to_tuple(Fonts.BODY)
-        ).pack(side="left")
-        
-        ctk.CTkCheckBox(
-            opt_frame,
-            text="強制安裝未簽署驅動",
-            variable=var_force,
-            font=Fonts.to_tuple(Fonts.BODY)
-        ).pack(side="left", padx=(24, 0))
-        
-        # 按鈕
-        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
-        btn_frame.pack(fill="x", pady=(16, 0))
-        
-        def do_add():
-            source = var_source.get().strip()
-            if not source:
-                messagebox.showwarning("提示", "請選擇驅動程式來源")
-                return
-            
-            self._on_log(f"正在安裝驅動: {source}")
-            
-            def add_thread():
-                success, msg = DriverManager.add_driver_to_offline_image(
-                    mount_dir, source,
-                    recurse=var_recurse.get(),
-                    force_unsigned=var_force.get()
-                )
-                self.after(0, lambda: add_complete(success, msg))
-            
-            def add_complete(success, msg):
-                if success:
-                    self._on_log("✓ 驅動程式安裝完成")
-                    messagebox.showinfo("完成", "驅動程式安裝完成！")
-                    dialog.destroy()
-                    self._refresh_driver_list()
-                else:
-                    self._on_log(f"✗ 安裝失敗: {msg}")
-                    messagebox.showerror("錯誤", f"安裝失敗: {msg}")
-            
-            threading.Thread(target=add_thread, daemon=True).start()
-        
-        ModernButton(
-            btn_frame,
-            text="取消",
-            variant="ghost",
-            command=dialog.destroy
-        ).pack(side="right")
-        
-        ModernButton(
-            btn_frame,
-            text="安裝",
-            variant="primary",
-            command=do_add
-        ).pack(side="right", padx=(0, 12))
+        threading.Thread(target=add_thread, daemon=True).start()
     
     def _on_remove_drivers(self):
         """移除驅動程式"""
@@ -987,18 +903,29 @@ class DriverPage(ctk.CTkFrame):
     
     # === 公開方法 ===
     
-    def refresh_targets(self):
-        """重新整理目標映像選項"""
+    def refresh_targets(self, auto_load: bool = False):
+        """
+        重新整理目標映像選項
+        
+        Args:
+            auto_load: 是否自動載入驅動（僅在目標變更時）
+        """
+        global _DRIVER_PAGE_CURRENT_TARGET
+        
         mounted_dirs = self._get_mounted_dirs()
         
         from app.wim_manager import WIMManager
         
         options = []
-        for name, path in mounted_dirs:
+        first_mounted_idx = -1
+        for i, (name, path) in enumerate(mounted_dirs):
             if path:
                 is_mounted, _, _ = WIMManager.is_path_mounted(path)
                 status = "✓ 已掛載" if is_mounted else "○ 未掛載"
-                options.append(f"{name} - {path} ({status})")
+                opt = f"{name} - {path} ({status})"
+                options.append(opt)
+                if is_mounted and first_mounted_idx < 0:
+                    first_mounted_idx = i
             else:
                 options.append(f"{name} - (未設定)")
         
@@ -1007,13 +934,54 @@ class DriverPage(ctk.CTkFrame):
         
         self.combo_target.configure(values=options)
         
-        # 自動選擇第一個已掛載的
-        for i, opt in enumerate(options):
-            if "✓ 已掛載" in opt:
-                self.combo_target.set(opt)
-                self._on_target_changed(opt)
-                break
+        # 取得當前選擇或自動選擇第一個已掛載的
+        current_selection = self.combo_target.get()
+        new_selection = ""
+        
+        # 如果當前選擇仍在選項中，保持不變
+        if current_selection in options:
+            new_selection = current_selection
+        # 否則選擇第一個已掛載的
+        elif first_mounted_idx >= 0:
+            new_selection = options[first_mounted_idx]
+        elif options:
+            new_selection = options[0]
+        
+        if new_selection:
+            self.combo_target.set(new_selection)
+            
+            # 提取 mount_dir
+            mount_dir = self._extract_mount_dir(new_selection)
+            
+            # 只有在目標真正變更時才載入驅動
+            if auto_load and mount_dir and mount_dir != _DRIVER_PAGE_CURRENT_TARGET:
+                _DRIVER_PAGE_CURRENT_TARGET = mount_dir
+                self._on_target_changed(new_selection)
+            elif not auto_load:
+                # 只更新狀態，不載入驅動
+                self._update_status_only(new_selection)
+    
+    def _extract_mount_dir(self, selection: str) -> str:
+        """從選項字串中提取掛載目錄"""
+        if selection and " - " in selection:
+            parts = selection.split(" - ")
+            if len(parts) >= 2:
+                return parts[1].split(" (")[0].strip()
+        return ""
+    
+    def _update_status_only(self, selection: str):
+        """只更新狀態顯示，不載入驅動"""
+        mount_dir = self._extract_mount_dir(selection)
+        
+        if mount_dir and os.path.isdir(mount_dir):
+            from app.wim_manager import WIMManager
+            is_mounted, _, _ = WIMManager.is_path_mounted(mount_dir)
+            
+            if is_mounted:
+                self.status_badge.set_status("已掛載", "success")
+            else:
+                self.status_badge.set_status("未掛載", "warning")
         else:
-            if options:
-                self.combo_target.set(options[0])
-                self._on_target_changed(options[0])
+            self.status_badge.set_status("未選擇", "default")
+        
+        self._update_button_states()

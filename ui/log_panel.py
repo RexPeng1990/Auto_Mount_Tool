@@ -321,8 +321,8 @@ class CollapsibleLogPanel(ctk.CTkFrame):
     def _build_ui(self):
         """建立 UI"""
         # === 標題列（可點擊收合） ===
-        self.header = ctk.CTkFrame(self, fg_color="transparent", height=36)
-        self.header.pack(fill="x", padx=8, pady=(6, 0))
+        self.header = ctk.CTkFrame(self, fg_color="transparent", height=32)
+        self.header.pack(fill="x", padx=10, pady=(6, 0))
         self.header.pack_propagate(False)
         
         # 左側：箭頭 + 標題（可點擊）
@@ -382,7 +382,7 @@ class CollapsibleLogPanel(ctk.CTkFrame):
         # === 日誌內容區域 ===
         self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
         if self._expanded:
-            self.content_frame.pack(fill="both", expand=True, padx=8, pady=(4, 8))
+            self.content_frame.pack(fill="both", expand=True, padx=10, pady=(4, 6))
         
         # 使用 Text widget
         self.text = tk.Text(
@@ -429,7 +429,7 @@ class CollapsibleLogPanel(ctk.CTkFrame):
         self._expanded = not self._expanded
         
         if self._expanded:
-            self.content_frame.pack(fill="both", expand=True, padx=8, pady=(4, 8))
+            self.content_frame.pack(fill="both", expand=True, padx=10, pady=(4, 6))
             self.arrow_label.configure(text="▼")
         else:
             self.content_frame.pack_forget()

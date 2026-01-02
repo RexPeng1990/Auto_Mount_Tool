@@ -34,6 +34,7 @@ class WIMSlot(ctk.CTkFrame):
         on_log: Callable[[str], None],
         on_status_change: Optional[Callable] = None,
         get_other_slot_info: Optional[Callable] = None,
+        expanded: bool = True,
         **kwargs
     ):
         """
@@ -45,6 +46,7 @@ class WIMSlot(ctk.CTkFrame):
             on_log: 日誌回調函數
             on_status_change: 狀態變更回調
             get_other_slot_info: 取得另一個槽位資訊的回調
+            expanded: 是否預設展開
         """
         super().__init__(master, fg_color="transparent", **kwargs)
         
@@ -52,6 +54,7 @@ class WIMSlot(ctk.CTkFrame):
         self._on_log = on_log
         self._on_status_change = on_status_change
         self._get_other_slot_info = get_other_slot_info
+        self._expanded = expanded
         
         # 變數
         self.var_wim_path = ctk.StringVar()
@@ -59,7 +62,7 @@ class WIMSlot(ctk.CTkFrame):
         self.var_index = ctk.StringVar()
         self.var_readonly = ctk.BooleanVar(value=True)
         self.var_commit = ctk.BooleanVar(value=False)
-        self.var_status = ctk.StringVar(value="未檢查")
+        self.var_status = ctk.StringVar(value="未掛載")
         
         # Index 選項
         self._index_options = []
@@ -68,234 +71,176 @@ class WIMSlot(ctk.CTkFrame):
         self._build_ui()
     
     def _build_ui(self):
-        """建立 UI"""
+        """建立 UI - 可摺疊緊湊版"""
         # 主卡片
-        card = ModernCard(self, padding=16)
-        card.pack(fill="x", pady=(0, 12))
-        content = card.get_content_frame()
+        self.card = ModernCard(self, padding=8)
+        self.card.pack(fill="x", pady=(0, 6))
+        content = self.card.get_content_frame()
         
-        # === 頂部：標題和狀態 ===
-        header = ctk.CTkFrame(content, fg_color="transparent")
-        header.pack(fill="x", pady=(0, 16))
+        # === 頂部：可點擊的標題列（用於摺疊） ===
+        header = ctk.CTkFrame(content, fg_color="transparent", cursor="hand2", height=28)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        
+        # 摺疊指示器
+        self.collapse_icon = ctk.CTkLabel(
+            header, text="▼" if self._expanded else "▶",
+            font=("Segoe UI", 10), width=16,
+            text_color=theme_manager.colors.text_secondary
+        )
+        self.collapse_icon.pack(side="left")
         
         # 標題
-        title = ctk.CTkLabel(
+        self.title_label = ctk.CTkLabel(
             header,
             text=f"🗂️ WIM 掛載 #{self.slot_number}",
-            font=Fonts.to_tuple(Fonts.TITLE_SMALL),
+            font=Fonts.to_tuple(Fonts.BODY),
             text_color=theme_manager.colors.text_primary
         )
-        title.pack(side="left")
+        self.title_label.pack(side="left", padx=(2, 0))
         
         # 狀態徽章
-        self.status_badge = StatusBadge(header, "未檢查", "default")
+        self.status_badge = StatusBadge(header, "未掛載", "default")
         self.status_badge.pack(side="right")
         
-        # === WIM 檔案選擇 ===
-        wim_frame = ctk.CTkFrame(content, fg_color="transparent")
-        wim_frame.pack(fill="x", pady=(0, 12))
+        # 綁定點擊事件到 header
+        for widget in [header, self.collapse_icon, self.title_label]:
+            widget.bind("<Button-1>", lambda e: self._toggle_collapse())
+        
+        # === 可摺疊內容區 ===
+        self.content_frame = ctk.CTkFrame(content, fg_color="transparent")
+        if self._expanded:
+            self.content_frame.pack(fill="x", pady=(6, 0))
+        
+        # === 第一行：WIM 檔案 + 讀取資訊 ===
+        row1 = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        row1.pack(fill="x", pady=(0, 4))
         
         ctk.CTkLabel(
-            wim_frame,
-            text="WIM 檔案",
-            font=Fonts.to_tuple(Fonts.LABEL),
-            text_color=theme_manager.colors.text_secondary,
-            width=90,
-            anchor="w"
+            row1, text="WIM 檔案", font=Fonts.to_tuple(Fonts.LABEL),
+            text_color=theme_manager.colors.text_secondary, width=70, anchor="w"
         ).pack(side="left")
         
-        self.entry_wim = ModernEntry(
-            wim_frame,
-            placeholder="選擇 WIM 映像檔...",
-            width=350
-        )
-        self.entry_wim.pack(side="left", padx=(8, 0), fill="x", expand=True)
+        self.entry_wim = ModernEntry(row1, placeholder="選擇 WIM 映像檔...", width=280)
+        self.entry_wim.pack(side="left", padx=(4, 0), fill="x", expand=True)
         self.entry_wim.configure(textvariable=self.var_wim_path)
         
-        ModernButton(
-            wim_frame,
-            text="瀏覽",
-            variant="outline",
-            size="sm",
-            command=self._on_browse_wim
-        ).pack(side="left", padx=(8, 0))
+        ModernButton(row1, text="瀏覽", variant="outline", size="sm",
+                     command=self._on_browse_wim).pack(side="left", padx=(4, 0))
+        ModernButton(row1, text="讀取資訊", variant="secondary", size="sm",
+                     command=self._on_read_wim_info).pack(side="left", padx=(4, 0))
         
-        ModernButton(
-            wim_frame,
-            text="讀取資訊",
-            variant="secondary",
-            size="sm",
-            command=self._on_read_wim_info
-        ).pack(side="left", padx=(8, 0))
-        
-        # === Index 和選項 ===
-        options_frame = ctk.CTkFrame(content, fg_color="transparent")
-        options_frame.pack(fill="x", pady=(0, 12))
+        # === 第二行：掛載目錄 + 建立/開啟 ===
+        row2 = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        row2.pack(fill="x", pady=(0, 4))
         
         ctk.CTkLabel(
-            options_frame,
-            text="Index",
-            font=Fonts.to_tuple(Fonts.LABEL),
-            text_color=theme_manager.colors.text_secondary,
-            width=90,
-            anchor="w"
+            row2, text="掛載目錄", font=Fonts.to_tuple(Fonts.LABEL),
+            text_color=theme_manager.colors.text_secondary, width=70, anchor="w"
+        ).pack(side="left")
+        
+        self.entry_mount = ModernEntry(row2, placeholder="選擇掛載目錄...", width=280)
+        self.entry_mount.pack(side="left", padx=(4, 0), fill="x", expand=True)
+        self.entry_mount.configure(textvariable=self.var_mount_dir)
+        
+        ModernButton(row2, text="選擇", variant="outline", size="sm",
+                     command=self._on_browse_mount_dir).pack(side="left", padx=(4, 0))
+        ModernButton(row2, text="建立", variant="outline", size="sm",
+                     command=self._on_create_mount_dir).pack(side="left", padx=(4, 0))
+        ModernButton(row2, text="開啟", variant="ghost", size="sm",
+                     command=self._on_open_mount_dir).pack(side="left", padx=(4, 0))
+        
+        # === 第三行：Index + 唯讀 + 卸載模式 ===
+        row3 = ctk.CTkFrame(self.content_frame, fg_color="transparent")
+        row3.pack(fill="x", pady=(0, 6))
+        
+        # Index
+        ctk.CTkLabel(
+            row3, text="Index", font=Fonts.to_tuple(Fonts.LABEL),
+            text_color=theme_manager.colors.text_secondary, width=70, anchor="w"
         ).pack(side="left")
         
         self.combo_index = ctk.CTkComboBox(
-            options_frame,
-            width=100,
-            variable=self.var_index,
-            state="readonly",
-            values=[""],
-            font=Fonts.to_tuple(Fonts.BODY),
-            dropdown_font=Fonts.to_tuple(Fonts.BODY),
+            row3, width=80, variable=self.var_index, state="readonly", values=[""],
+            font=Fonts.to_tuple(Fonts.BODY), dropdown_font=Fonts.to_tuple(Fonts.BODY),
             command=self._on_index_changed
         )
-        self.combo_index.pack(side="left", padx=(8, 0))
+        self.combo_index.pack(side="left", padx=(4, 0))
         
         # 唯讀開關
         self.switch_readonly = ctk.CTkSwitch(
-            options_frame,
-            text="唯讀掛載",
-            variable=self.var_readonly,
-            font=Fonts.to_tuple(Fonts.BODY),
-            text_color=theme_manager.colors.text_primary,
-            progress_color=theme_manager.colors.primary,
-            command=self._on_readonly_changed
+            row3, text="唯讀", variable=self.var_readonly, width=60,
+            font=Fonts.to_tuple(Fonts.BODY), text_color=theme_manager.colors.text_primary,
+            progress_color=theme_manager.colors.primary, command=self._on_readonly_changed
         )
-        self.switch_readonly.pack(side="left", padx=(24, 0))
-        ModernTooltip(self.switch_readonly, [
-            "唯讀掛載：以唯讀模式掛載映像",
-            "• 適合只需查看映像內容的情況",
-            "• 若需要修改映像，請關閉此選項"
-        ])
+        self.switch_readonly.pack(side="left", padx=(16, 0))
+        ModernTooltip(self.switch_readonly, "唯讀模式掛載，無法修改映像內容")
         
-        # === 掛載目錄 ===
-        mount_frame = ctk.CTkFrame(content, fg_color="transparent")
-        mount_frame.pack(fill="x", pady=(0, 12))
+        # 分隔
+        ctk.CTkLabel(row3, text="│", text_color=theme_manager.colors.border).pack(side="left", padx=(12, 12))
         
+        # 卸載模式
         ctk.CTkLabel(
-            mount_frame,
-            text="掛載目錄",
-            font=Fonts.to_tuple(Fonts.LABEL),
-            text_color=theme_manager.colors.text_secondary,
-            width=90,
-            anchor="w"
-        ).pack(side="left")
-        
-        self.entry_mount = ModernEntry(
-            mount_frame,
-            placeholder="選擇掛載目錄...",
-            width=350
-        )
-        self.entry_mount.pack(side="left", padx=(8, 0), fill="x", expand=True)
-        self.entry_mount.configure(textvariable=self.var_mount_dir)
-        
-        ModernButton(
-            mount_frame,
-            text="選擇",
-            variant="outline",
-            size="sm",
-            command=self._on_browse_mount_dir
-        ).pack(side="left", padx=(8, 0))
-        
-        ModernButton(
-            mount_frame,
-            text="建立",
-            variant="outline",
-            size="sm",
-            command=self._on_create_mount_dir
-        ).pack(side="left", padx=(8, 0))
-        
-        ModernButton(
-            mount_frame,
-            text="開啟",
-            variant="ghost",
-            size="sm",
-            command=self._on_open_mount_dir
-        ).pack(side="left", padx=(8, 0))
-        
-        # === 卸載選項 ===
-        unmount_frame = ctk.CTkFrame(content, fg_color="transparent")
-        unmount_frame.pack(fill="x", pady=(0, 16))
-        
-        ctk.CTkLabel(
-            unmount_frame,
-            text="卸載模式",
-            font=Fonts.to_tuple(Fonts.LABEL),
-            text_color=theme_manager.colors.text_secondary,
-            width=90,
-            anchor="w"
+            row3, text="卸載:", font=Fonts.to_tuple(Fonts.LABEL),
+            text_color=theme_manager.colors.text_secondary
         ).pack(side="left")
         
         self.radio_discard = ctk.CTkRadioButton(
-            unmount_frame,
-            text="丟棄變更",
-            variable=self.var_commit,
-            value=False,
-            font=Fonts.to_tuple(Fonts.BODY),
-            text_color=theme_manager.colors.text_primary
+            row3, text="丟棄", variable=self.var_commit, value=False,
+            font=Fonts.to_tuple(Fonts.BODY), text_color=theme_manager.colors.text_primary, width=60
         )
-        self.radio_discard.pack(side="left", padx=(8, 0))
-        ModernTooltip(self.radio_discard, "放棄掛載期間的所有修改")
+        self.radio_discard.pack(side="left", padx=(4, 0))
         
         self.radio_commit = ctk.CTkRadioButton(
-            unmount_frame,
-            text="提交變更",
-            variable=self.var_commit,
-            value=True,
-            font=Fonts.to_tuple(Fonts.BODY),
-            text_color=theme_manager.colors.text_primary
+            row3, text="提交", variable=self.var_commit, value=True,
+            font=Fonts.to_tuple(Fonts.BODY), text_color=theme_manager.colors.text_primary, width=60
         )
-        self.radio_commit.pack(side="left", padx=(16, 0))
-        ModernTooltip(self.radio_commit, "將修改寫回 WIM 檔案")
+        self.radio_commit.pack(side="left", padx=(4, 0))
         
-        # 檢查狀態按鈕
-        ModernButton(
-            unmount_frame,
-            text="檢查狀態",
-            variant="ghost",
-            size="sm",
-            command=self._on_check_status
-        ).pack(side="right")
+        # 檢查狀態按鈕（右側）
+        ModernButton(row3, text="檢查狀態", variant="ghost", size="sm",
+                     command=self._on_check_status).pack(side="right")
         
-        # === 操作按鈕 ===
-        btn_frame = ctk.CTkFrame(content, fg_color="transparent")
+        # === 第四行：操作按鈕 ===
+        btn_frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
         btn_frame.pack(fill="x")
         
         self.btn_mount = ModernButton(
-            btn_frame,
-            text="掛載 WIM",
-            icon="📁",
-            variant="primary",
-            command=self._on_mount
+            btn_frame, text="掛載 WIM", icon="📁", variant="primary", command=self._on_mount
         )
         self.btn_mount.pack(side="left")
         
         self.btn_unmount = ModernButton(
-            btn_frame,
-            text="卸載 WIM",
-            icon="📤",
-            variant="secondary",
-            command=self._on_unmount
+            btn_frame, text="卸載 WIM", icon="📤", variant="secondary", command=self._on_unmount
         )
-        self.btn_unmount.pack(side="left", padx=(12, 0))
+        self.btn_unmount.pack(side="left", padx=(8, 0))
         
-        ModernButton(
-            btn_frame,
-            text="關閉檔案總管",
-            variant="outline",
-            size="sm",
-            command=self._on_close_explorer
-        ).pack(side="left", padx=(12, 0))
+        ModernButton(btn_frame, text="關閉檔案總管", variant="outline", size="sm",
+                     command=self._on_close_explorer).pack(side="left", padx=(8, 0))
         
-        ModernButton(
-            btn_frame,
-            text="🔧 一鍵修復",
-            variant="warning",
-            size="sm",
-            command=self._on_smart_fix
-        ).pack(side="right")
+        ModernButton(btn_frame, text="🔧 一鍵修復", variant="warning", size="sm",
+                     command=self._on_smart_fix).pack(side="right")
+    
+    def _toggle_collapse(self):
+        """切換摺疊狀態"""
+        self._expanded = not self._expanded
+        
+        if self._expanded:
+            self.collapse_icon.configure(text="▼")
+            self.content_frame.pack(fill="x", pady=(6, 0))
+        else:
+            self.collapse_icon.configure(text="▶")
+            self.content_frame.pack_forget()
+    
+    def expand(self):
+        """展開面板"""
+        if not self._expanded:
+            self._toggle_collapse()
+    
+    def collapse(self):
+        """摺疊面板"""
+        if self._expanded:
+            self._toggle_collapse()
     
     # === 事件處理 ===
     
@@ -520,7 +465,7 @@ class WIMSlot(ctk.CTkFrame):
             self._update_status("未掛載", "default")
         else:
             self._on_log(f"✗ WIM#{self.slot_number} 卸載失敗: {message}")
-            messagebox.showerror("卸載失敗", result.get("error", "未知錯誤"))
+            messagebox.showerror("卸載失敗", message)
     
     def _on_close_explorer(self):
         """關閉檔案總管"""
@@ -648,23 +593,25 @@ class WIMPage(ctk.CTkFrame):
         )
         scroll_frame.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         
-        # WIM 槽位 #1
+        # WIM 槽位 #1 (預設展開)
         self.slot1 = WIMSlot(
             scroll_frame,
             slot_number=1,
             on_log=self._on_log,
             on_status_change=self._on_slot_status_change,
-            get_other_slot_info=lambda: self.slot2.get_slot_info() if hasattr(self, 'slot2') else None
+            get_other_slot_info=lambda: self.slot2.get_slot_info() if hasattr(self, 'slot2') else None,
+            expanded=True
         )
         self.slot1.pack(fill="x")
         
-        # WIM 槽位 #2
+        # WIM 槽位 #2 (預設摺疊)
         self.slot2 = WIMSlot(
             scroll_frame,
             slot_number=2,
             on_log=self._on_log,
             on_status_change=self._on_slot_status_change,
-            get_other_slot_info=lambda: self.slot1.get_slot_info()
+            get_other_slot_info=lambda: self.slot1.get_slot_info(),
+            expanded=False
         )
         self.slot2.pack(fill="x")
     

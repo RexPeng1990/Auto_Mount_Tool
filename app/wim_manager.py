@@ -106,6 +106,78 @@ class WIMManager:
         except Exception as e:
             return 9002, "", str(e)
 
+    # ==================== 掛載狀態檢查 ====================
+
+    @staticmethod
+    def get_all_mounted_wims() -> tuple[bool, list[dict], str]:
+        """
+        取得系統中所有已掛載的 WIM 映像資訊
+        
+        Returns:
+            (success, mounted_list, error_message)
+            mounted_list 中每個元素包含:
+            - mount_dir: 掛載目錄
+            - image_file: WIM 檔案路徑
+            - image_index: 映像索引
+            - status: 狀態 (Ok, Needs Remount, Invalid 等)
+        """
+        rc, out, err = WIMManager._run_dism(["/Get-MountedWimInfo"])
+        if rc != 0:
+            return False, [], err or out
+        
+        if "No mounted images" in out or "沒有掛載的映像" in out:
+            return True, [], ""
+        
+        mounted = []
+        current = {}
+        
+        for line in out.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            
+            # 支援中英文輸出
+            if line.startswith("Mount Dir") or line.startswith("掛載目錄"):
+                if current.get("mount_dir"):
+                    mounted.append(current)
+                current = {"mount_dir": line.split(":", 1)[1].strip()}
+            elif line.startswith("Image File") or line.startswith("映像檔"):
+                current["image_file"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Image Index") or line.startswith("映像索引"):
+                current["image_index"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Status") or line.startswith("狀態"):
+                current["status"] = line.split(":", 1)[1].strip()
+        
+        if current.get("mount_dir"):
+            mounted.append(current)
+        
+        return True, mounted, ""
+
+    @staticmethod
+    def check_mount_status(mount_dir: str) -> tuple[bool, dict | None]:
+        """
+        檢查特定目錄是否有掛載 WIM
+        
+        Args:
+            mount_dir: 掛載目錄路徑
+            
+        Returns:
+            (is_mounted, mount_info)
+            mount_info 包含 image_file, image_index, status (如果有掛載)
+        """
+        mount_dir = os.path.normpath(mount_dir).rstrip("\\")
+        success, mounted_list, _ = WIMManager.get_all_mounted_wims()
+        
+        if not success:
+            return False, None
+        
+        for mount in mounted_list:
+            mounted_path = os.path.normpath(mount.get("mount_dir", "")).rstrip("\\")
+            if mounted_path.lower() == mount_dir.lower():
+                return True, mount
+        
+        return False, None
+
     # ==================== WIM 映像資訊 ====================
 
     @staticmethod

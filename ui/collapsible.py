@@ -57,8 +57,8 @@ class CollapsibleSection(ctk.CTkFrame):
     def _build_ui(self):
         """建立 UI"""
         # === 標題列 ===
-        self.header = ctk.CTkFrame(self, fg_color="transparent", height=40)
-        self.header.pack(fill="x", padx=12, pady=(8, 0))
+        self.header = ctk.CTkFrame(self, fg_color="transparent", height=32)
+        self.header.pack(fill="x", padx=10, pady=(6, 0))
         self.header.pack_propagate(False)
         
         # 左側：箭頭 + 圖示 + 標題（可點擊）
@@ -108,14 +108,14 @@ class CollapsibleSection(ctk.CTkFrame):
         # === 內容區域 ===
         self.content_frame = ctk.CTkFrame(self, fg_color="transparent")
         if self._expanded:
-            self.content_frame.pack(fill="both", expand=True, padx=12, pady=(8, 12))
+            self.content_frame.pack(fill="both", expand=True, padx=10, pady=(6, 8))
     
     def toggle(self):
         """切換展開/收合狀態"""
         self._expanded = not self._expanded
         
         if self._expanded:
-            self.content_frame.pack(fill="both", expand=True, padx=12, pady=(8, 12))
+            self.content_frame.pack(fill="both", expand=True, padx=10, pady=(6, 8))
             self.arrow_label.configure(text="▼")
         else:
             self.content_frame.pack_forget()
