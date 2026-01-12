@@ -38,7 +38,7 @@ class SidebarApp(ctk.CTk):
     """左側導航版本的 WIM/Driver 管理工具"""
     
     APP_TITLE = "WIM 管理工具"
-    APP_VERSION = "3.0"
+    APP_VERSION = "2026.01.12"
     WINDOW_SIZE = "1100x620"
     MIN_SIZE = (1000, 570)
     WIM_SLOT_COUNT = 2
@@ -46,7 +46,7 @@ class SidebarApp(ctk.CTk):
     def __init__(self):
         super().__init__()
         
-        self.title(self.APP_TITLE)
+        self.title(f"{self.APP_TITLE} v{self.APP_VERSION}")
         self.minsize(*self.MIN_SIZE)
         self.configure(fg_color="#ffffff")
         

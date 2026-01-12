@@ -122,41 +122,9 @@ class Sidebar(ctk.CTkFrame):
     
     def _build_ui(self):
         """建立 UI"""
-        # === Logo / 標題 ===
-        header = ctk.CTkFrame(self, fg_color="transparent", height=60)
-        header.pack(fill="x", pady=(16, 20))
-        header.pack_propagate(False)
-        
-        # Logo 圖示
-        logo_frame = ctk.CTkFrame(header, fg_color="transparent")
-        logo_frame.pack(expand=True)
-        
-        ctk.CTkLabel(
-            logo_frame,
-            text="🗄️",
-            font=("Segoe UI Emoji", 24)
-        ).pack(side="left")
-        
-        title_frame = ctk.CTkFrame(logo_frame, fg_color="transparent")
-        title_frame.pack(side="left", padx=(8, 0))
-        
-        ctk.CTkLabel(
-            title_frame,
-            text=self._title,
-            font=Fonts.to_tuple(Fonts.TITLE_SMALL),
-            text_color="#1976d2"
-        ).pack(anchor="w")
-        
-        ctk.CTkLabel(
-            title_frame,
-            text=f"v{self._version}",
-            font=Fonts.to_tuple(Fonts.CAPTION),
-            text_color="#90a4ae"
-        ).pack(anchor="w")
-        
         # === 導航項目 ===
         self.nav_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self.nav_frame.pack(fill="both", expand=True)
+        self.nav_frame.pack(fill="both", expand=True, pady=(16, 0))
         
         # === 底部開發者資訊 ===
         footer = ctk.CTkFrame(self, fg_color="transparent")

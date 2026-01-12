@@ -82,21 +82,25 @@ class ScriptPage(ctk.CTkFrame):
         self.status_badge = StatusBadge(target_row, "未選擇", "default")
         self.status_badge.pack(side="left", padx=(12, 0))
         
-        ModernButton(
-            target_row,
-            text="重新整理",
-            variant="outline",
-            size="sm",
-            command=self.refresh_targets
-        ).pack(side="left", padx=(12, 0))
+        # 按鈕群組放右側
+        btn_group = ctk.CTkFrame(target_row, fg_color="transparent")
+        btn_group.pack(side="right")
         
         ModernButton(
-            target_row,
-            text="開啟檔案位置",
-            variant="ghost",
+            btn_group,
+            text="🔄 重新整理",
+            variant="secondary",
+            size="sm",
+            command=self.refresh_targets
+        ).pack(side="left", padx=(0, 8))
+        
+        ModernButton(
+            btn_group,
+            text="📂 開啟位置",
+            variant="secondary",
             size="sm",
             command=self._open_file_location
-        ).pack(side="right")
+        ).pack(side="left")
         
         # 顯示檔案路徑
         self.lbl_path = ctk.CTkLabel(
