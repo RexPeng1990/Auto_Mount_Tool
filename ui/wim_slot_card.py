@@ -14,6 +14,7 @@ from typing import Optional, Callable, Any
 
 from ui.theme import theme_manager, Fonts
 from ui.components import StatusBadge
+from ui.widgets import ModernComboBox, UnmountWarningDialog
 from app.wim_manager import WIMManager
 from app.utils import open_directory
 
@@ -66,7 +67,7 @@ class WIMSlotCard(ctk.CTkFrame):
         ctk.CTkLabel(
             header,
             text=f"WIM 掛載點 #{self.slot_number}",
-            font=("Microsoft JhengHei UI", 14, "bold"),
+            font=Fonts.to_tuple(Fonts.TITLE_SMALL),
             text_color="#37474f"
         ).pack(side="left")
         
@@ -86,42 +87,34 @@ class WIMSlotCard(ctk.CTkFrame):
         self._create_field_row(content, "掛載目錄", self.var_mount_dir,
                               browse_cmd=self._on_browse_mount)
         
-        # Index + 唯讀
+        # 選項列：儲存模式 + 唯讀
         options_frame = ctk.CTkFrame(content, fg_color="transparent")
         options_frame.pack(fill="x", pady=(0, 8))
         
+        # 卸載模式（左側）
         ctk.CTkLabel(
             options_frame,
-            text="Index",
-            font=("Microsoft JhengHei UI", 12),
+            text="卸載模式",
+            font=Fonts.to_tuple(Fonts.LABEL),
             text_color="#78909c",
-            width=70,
+            width=90,
             anchor="w"
         ).pack(side="left")
         
-        self.combo_index = ctk.CTkComboBox(
+        self.combo_unmount = ModernComboBox(
             options_frame,
-            width=80,
+            width=110,
             height=32,
-            variable=self.var_index,
-            state="readonly",
-            values=[""],
-            font=("Microsoft JhengHei UI", 11),
-            dropdown_font=("Microsoft JhengHei UI", 11),
-            fg_color="#ffffff",
-            border_color="#cce5ff",
-            border_width=1,
-            button_color="#e1f0ff",
-            button_hover_color="#bbdefb",
-            dropdown_fg_color="#ffffff",
-            dropdown_hover_color="#e1f0ff"
+            values=["放棄變更", "保留變更"]
         )
-        self.combo_index.pack(side="left", padx=(0, 16))
+        self.combo_unmount.set("放棄變更")
+        self.combo_unmount.pack(side="left", padx=(0, 16))
         
+        # 唯讀開關（右側）
         ctk.CTkLabel(
             options_frame,
             text="唯讀",
-            font=("Microsoft JhengHei UI", 12),
+            font=Fonts.to_tuple(Fonts.LABEL),
             text_color="#78909c"
         ).pack(side="left")
         
@@ -134,28 +127,16 @@ class WIMSlotCard(ctk.CTkFrame):
             progress_color="#64b5f6",
             button_color="#ffffff",
             button_hover_color="#e3f2fd",
-            fg_color="#e0e0e0"
+            fg_color="#e0e0e0",
+            command=self._on_readonly_changed
         )
         self.switch_readonly.pack(side="left", padx=(4, 0))
         
-        # 卸載選項（非唯讀時顯示）
-        self.unmount_frame = ctk.CTkFrame(options_frame, fg_color="transparent")
-        self.unmount_frame.pack(side="right")
+        # 初始化：唯讀模式下鎖定儲存模式
+        self._on_readonly_changed()
         
-        self.combo_unmount = ctk.CTkComboBox(
-            self.unmount_frame,
-            width=100,
-            height=32,
-            values=["丟棄變更", "提交變更"],
-            font=("Microsoft JhengHei UI", 11),
-            fg_color="#ffffff",
-            border_color="#cce5ff",
-            border_width=1,
-            button_color="#e1f0ff",
-            state="readonly"
-        )
-        self.combo_unmount.set("丟棄變更")
-        self.combo_unmount.pack(side="right")
+        # Index 固定為 1
+        self.var_index.set("1")
         
         # === 按鈕區 ===
         btn_frame = ctk.CTkFrame(content, fg_color="transparent")
@@ -165,11 +146,12 @@ class WIMSlotCard(ctk.CTkFrame):
         self.btn_mount = ctk.CTkButton(
             btn_frame,
             text="掛載 WIM",
-            font=("Microsoft JhengHei UI", 12),
+            font=Fonts.to_tuple(Fonts.BODY),
             height=36,
             corner_radius=8,
             fg_color="#64b5f6",
             hover_color="#42a5f5",
+            text_color="#ffffff",
             command=self._on_mount
         )
         self.btn_mount.pack(fill="x")
@@ -180,27 +162,33 @@ class WIMSlotCard(ctk.CTkFrame):
         self.btn_unmount = ctk.CTkButton(
             self.unmount_fix_frame,
             text="卸載 WIM",
-            font=("Microsoft JhengHei UI", 12),
+            font=Fonts.to_tuple(Fonts.BODY),
             height=36,
             corner_radius=8,
             fg_color="#64b5f6",
             hover_color="#42a5f5",
+            text_color="#ffffff",
             command=self._on_unmount
         )
         
         # 一鍵修復按鈕
         self.btn_fix = ctk.CTkButton(
             self.unmount_fix_frame,
-            text="修復",
-            font=("Microsoft JhengHei UI", 12),
+            text="修復卸載",
+            font=Fonts.to_tuple(Fonts.BODY),
             height=36,
             corner_radius=8,
-            fg_color="#b0bec5",
-            hover_color="#90a4ae",
+            fg_color="#81c784",  # 綠色
+            hover_color="#66bb6a",
+            text_color="#ffffff",
             command=self._on_smart_fix
         )
         
         self._update_button_state()
+        
+        # 監聽欄位變更，即時更新按鈕狀態
+        self.var_wim_path.trace_add("write", lambda *_: self._update_button_state())
+        self.var_mount_dir.trace_add("write", lambda *_: self._update_button_state())
     
     def _create_field_row(self, parent, label: str, var: ctk.StringVar, 
                          browse_cmd: Optional[Callable] = None):
@@ -211,25 +199,27 @@ class WIMSlotCard(ctk.CTkFrame):
         ctk.CTkLabel(
             frame,
             text=label,
-            font=("Microsoft JhengHei UI", 12),
+            font=Fonts.to_tuple(Fonts.LABEL),
             text_color="#78909c",
-            width=70,
+            width=90,
             anchor="w"
         ).pack(side="left")
         
         entry_frame = ctk.CTkFrame(
             frame, 
-            fg_color="#f5f5f5", 
+            fg_color="#ffffff", 
             corner_radius=6,
             border_width=1,
-            border_color="#e0e0e0"
+            border_color="#cce5ff",
+            height=36
         )
         entry_frame.pack(side="left", fill="x", expand=True)
+        entry_frame.pack_propagate(False)
         
         entry = ctk.CTkEntry(
             entry_frame,
             textvariable=var,
-            font=("Microsoft JhengHei UI", 11),
+            font=Fonts.to_tuple(Fonts.BODY_SMALL),
             height=32,
             border_width=0,
             fg_color="transparent",
@@ -259,6 +249,8 @@ class WIMSlotCard(ctk.CTkFrame):
             filetypes=[("WIM 映像", "*.wim"), ("ESD 映像", "*.esd"), ("所有檔案", "*.*")]
         )
         if path:
+            # 統一使用正斜線
+            path = path.replace("\\", "/")
             self.var_wim_path.set(path)
             self._on_log(f"WIM#{self.slot_number} 選擇檔案: {path}")
             self._read_wim_info()
@@ -267,6 +259,8 @@ class WIMSlotCard(ctk.CTkFrame):
         """瀏覽掛載目錄"""
         path = filedialog.askdirectory(title="選擇掛載目錄")
         if path:
+            # 統一使用正斜線
+            path = path.replace("\\", "/")
             self.var_mount_dir.set(path)
             self._on_log(f"WIM#{self.slot_number} 選擇目錄: {path}")
             # 檢查此目錄是否已有掛載
@@ -285,13 +279,9 @@ class WIMSlotCard(ctk.CTkFrame):
         threading.Thread(target=do_read, daemon=True).start()
     
     def _update_index_options(self, success: bool, images: list, error: str):
-        """更新 Index 選項"""
+        """更新 Index 選項（已簡化，Index 固定為 1）"""
         if success and images:
             self._index_options = images
-            options = [f"{img['Index']}" for img in images]
-            self.combo_index.configure(values=options)
-            if options:
-                self.combo_index.set(options[0])
             self._on_log(f"WIM#{self.slot_number} 讀取到 {len(images)} 個映像")
         else:
             self._on_log(f"WIM#{self.slot_number} 讀取失敗: {error}")
@@ -300,7 +290,7 @@ class WIMSlotCard(ctk.CTkFrame):
         """掛載 WIM"""
         wim_path = self.var_wim_path.get().strip()
         mount_dir = self.var_mount_dir.get().strip()
-        index = self.var_index.get().strip()
+        index = "1"  # Index 固定為 1
         readonly = self.var_readonly.get()
         
         if not wim_path:
@@ -308,9 +298,6 @@ class WIMSlotCard(ctk.CTkFrame):
             return
         if not mount_dir:
             messagebox.showwarning("提示", "請選擇掛載目錄")
-            return
-        if not index:
-            messagebox.showwarning("提示", "請選擇 Index")
             return
         
         # 建立目錄
@@ -320,7 +307,7 @@ class WIMSlotCard(ctk.CTkFrame):
         self.btn_mount.configure(state="disabled", text="掛載中...")
         
         def do_mount():
-            success, message = WIMManager.mount_wim(wim_path, mount_dir, index, readonly)
+            success, message = WIMManager.mount_wim(wim_path, index, mount_dir, readonly)
             self.after(0, lambda: self._mount_complete(success, message))
         
         threading.Thread(target=do_mount, daemon=True).start()
@@ -342,11 +329,13 @@ class WIMSlotCard(ctk.CTkFrame):
         if not mount_dir:
             return
         
-        commit = self.combo_unmount.get() == "提交變更"
-        action = "提交變更" if commit else "丟棄變更"
-        
-        if not messagebox.askyesno("確認卸載", f"確定要卸載並{action}嗎？"):
+        # 顯示卸載警告對話框
+        dialog = UnmountWarningDialog(self.winfo_toplevel(), mount_dir)
+        if not dialog.confirmed:
             return
+        
+        commit = self.combo_unmount.get() == "保留變更"
+        action = "保留變更" if commit else "放棄變更"
         
         self._on_log(f"正在卸載 WIM#{self.slot_number} ({action})...")
         self.btn_unmount.configure(state="disabled", text="卸載中...")
@@ -416,9 +405,26 @@ class WIMSlotCard(ctk.CTkFrame):
         if self._on_status_change:
             self._on_status_change(self.slot_number, status == "success")
     
+    def _on_readonly_changed(self):
+        """唯讀開關變更時的處理"""
+        is_readonly = self.var_readonly.get()
+        
+        if is_readonly:
+            # 唯讀模式：強制選擇「放棄變更」並鎖定下拉選單
+            self.combo_unmount.set("放棄變更")
+            self.combo_unmount.configure(state="disabled")
+        else:
+            # 可寫模式：解鎖下拉選單
+            self.combo_unmount.configure(state="normal")
+    
     def _update_button_state(self):
         """更新按鈕狀態"""
         is_mounted = self.var_status.get() == "已掛載"
+        
+        # 檢查欄位是否有值
+        wim_path = self.var_wim_path.get().strip()
+        mount_dir = self.var_mount_dir.get().strip()
+        has_required_fields = bool(wim_path and mount_dir)
         
         if is_mounted:
             self.btn_mount.pack_forget()
@@ -430,14 +436,30 @@ class WIMSlotCard(ctk.CTkFrame):
             self.btn_unmount.pack_forget()
             self.btn_fix.pack_forget()
             self.btn_mount.pack(fill="x")
+            
+            # 根據欄位是否有值設定按鈕狀態
+            if has_required_fields:
+                self.btn_mount.configure(
+                    state="normal",
+                    fg_color="#64b5f6",
+                    hover_color="#42a5f5",
+                    text_color="#ffffff"
+                )
+            else:
+                self.btn_mount.configure(
+                    state="disabled",
+                    fg_color="#d0d0d0",
+                    hover_color="#d0d0d0",
+                    text_color="#ffffff"
+                )
     
     # === 公開方法 ===
     
     def get_config(self) -> dict:
         """取得設定"""
         return {
-            "wim_path": self.var_wim_path.get(),
-            "mount_dir": self.var_mount_dir.get(),
+            "wim_path": self.var_wim_path.get().replace("\\", "/"),
+            "mount_dir": self.var_mount_dir.get().replace("\\", "/"),
             "index": self.var_index.get(),
             "readonly": self.var_readonly.get()
         }
@@ -445,20 +467,30 @@ class WIMSlotCard(ctk.CTkFrame):
     def set_config(self, config: dict):
         """設定值"""
         if "wim_path" in config:
-            self.var_wim_path.set(config["wim_path"])
+            # 統一使用正斜線
+            path = config["wim_path"].replace("\\", "/") if config["wim_path"] else ""
+            self.var_wim_path.set(path)
         if "mount_dir" in config:
-            self.var_mount_dir.set(config["mount_dir"])
+            # 統一使用正斜線
+            path = config["mount_dir"].replace("\\", "/") if config["mount_dir"] else ""
+            self.var_mount_dir.set(path)
         if "index" in config:
             self.var_index.set(config["index"])
         if "readonly" in config:
             self.var_readonly.set(config["readonly"])
+            # 設定後立即更新儲存模式狀態
+            self._on_readonly_changed()
         
         # 設定後檢查掛載狀態
         self.after(100, self._check_and_update_mount_status)
     
     def get_mount_dir(self) -> str:
         """取得掛載目錄"""
-        return self.var_mount_dir.get().strip()
+        return self.var_mount_dir.get().strip().replace("\\", "/")
+    
+    def get_readonly(self) -> bool:
+        """取得唯讀狀態"""
+        return self.var_readonly.get()
     
     def is_mounted(self) -> bool:
         """是否已掛載"""
@@ -483,6 +515,10 @@ class WIMSlotCard(ctk.CTkFrame):
             wim_file = mount_info.get("image_file", "")
             index = mount_info.get("image_index", "")
             status = mount_info.get("status", "Ok")
+            
+            # 統一路徑斜線
+            if wim_file:
+                wim_file = wim_file.replace("\\", "/")
             
             # 判斷掛載狀態類型
             if status in ["Needs Remount", "Invalid", "Corrupted"]:

@@ -69,7 +69,7 @@ class CollapsibleSection(ctk.CTkFrame):
         self.arrow_label = ctk.CTkLabel(
             left_frame,
             text="▼" if self._expanded else "▶",
-            font=("Segoe UI", 11),
+            font=Fonts.to_tuple(Fonts.BODY_SMALL),
             text_color=theme_manager.colors.text_muted,
             width=18
         )

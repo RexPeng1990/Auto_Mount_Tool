@@ -85,7 +85,7 @@ class WIMSlot(ctk.CTkFrame):
         # 摺疊指示器
         self.collapse_icon = ctk.CTkLabel(
             header, text="▼" if self._expanded else "▶",
-            font=("Segoe UI", 10), width=16,
+            font=Fonts.to_tuple(Fonts.CAPTION), width=16,
             text_color=theme_manager.colors.text_secondary
         )
         self.collapse_icon.pack(side="left")

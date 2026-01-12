@@ -9,12 +9,20 @@ import subprocess
 import threading
 from typing import Callable, Optional
 
-# 全域 DISM 操作鎖 - 防止多個 DISM 操作同時執行
-_dism_lock = threading.Lock()
-_dism_busy = False
+# 從獨立模組匯入 DISM 執行器
+from app.dism_executor import (
+    ProgressCallback,
+    run_dism as _executor_run_dism,
+    run_dism_with_progress as _executor_run_dism_with_progress,
+    norm_path as _executor_norm_path,
+    get_dism_lock,
+    is_dism_busy,
+    set_dism_busy,
+)
 
-# 進度回調類型定義
-ProgressCallback = Optional[Callable[[str], None]]
+# 保持向後相容的全域鎖引用
+_dism_lock = get_dism_lock()
+_dism_busy = False
 
 
 class WIMManager:
@@ -24,11 +32,8 @@ class WIMManager:
     
     @staticmethod
     def _norm_path(p: str) -> str:
-        """正規化路徑"""
-        try:
-            return os.path.normpath(p)
-        except Exception:
-            return p
+        """正規化路徑 - 委派給獨立模組"""
+        return _executor_norm_path(p)
     
     @staticmethod
     def is_admin() -> bool:
@@ -42,23 +47,17 @@ class WIMManager:
     @staticmethod
     def _run_dism(args: list[str]) -> tuple[int, str, str]:
         """
-        執行 DISM 命令
+        執行 DISM 命令 - 委派給獨立模組
         
         Returns:
             (return_code, stdout, stderr)
         """
-        try:
-            cp = subprocess.run(["dism", "/English", *args], capture_output=True, text=True)
-            return cp.returncode, cp.stdout or "", cp.stderr or ""
-        except FileNotFoundError as e:
-            return 9001, "", f"找不到 DISM：{e}"
-        except Exception as e:
-            return 9002, "", str(e)
+        return _executor_run_dism(args)
 
     @staticmethod
     def _run_dism_with_progress(args: list[str], progress_callback: ProgressCallback = None) -> tuple[int, str, str]:
         """
-        執行 DISM 命令並即時回報進度
+        執行 DISM 命令並即時回報進度 - 委派給獨立模組
         
         Args:
             args: DISM 命令參數
@@ -67,44 +66,7 @@ class WIMManager:
         Returns:
             (return_code, stdout, stderr)
         """
-        try:
-            # 使用 Popen 以便即時讀取輸出
-            process = subprocess.Popen(
-                ["dism", "/English", *args],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,  # 行緩衝
-                universal_newlines=True
-            )
-            
-            stdout_lines = []
-            stderr_output = ""
-            
-            # 即時讀取 stdout
-            if process.stdout:
-                for line in process.stdout:
-                    stdout_lines.append(line)
-                    
-                    # 解析進度百分比 (DISM 輸出格式: "[===   10.0%   ]" 或 "[ 10.0% ]")
-                    if progress_callback:
-                        progress_match = re.search(r'(\d+\.?\d*)\s*%', line)
-                        if progress_match:
-                            progress_callback(f"{progress_match.group(1)}%")
-            
-            # 讀取 stderr
-            if process.stderr:
-                stderr_output = process.stderr.read()
-            
-            # 等待進程結束
-            process.wait()
-            
-            return process.returncode, "".join(stdout_lines), stderr_output
-            
-        except FileNotFoundError as e:
-            return 9001, "", f"找不到 DISM：{e}"
-        except Exception as e:
-            return 9002, "", str(e)
+        return _executor_run_dism_with_progress(args, progress_callback)
 
     # ==================== 掛載狀態檢查 ====================
 
@@ -963,16 +925,5 @@ Write-Output "已關閉 $closed 個檔案總管視窗"
             return False, f"關閉檔案總管視窗時發生錯誤: {str(e)}"
 
 
-# 導出全域鎖供其他模組使用
-def get_dism_lock():
-    """取得 DISM 操作鎖"""
-    return _dism_lock
-
-def is_dism_busy():
-    """檢查是否有 DISM 操作正在執行"""
-    return _dism_busy
-
-def set_dism_busy(busy: bool):
-    """設定 DISM 忙碌狀態"""
-    global _dism_busy
-    _dism_busy = busy
+# 向後相容的全域函數 - 實際上委派給 dism_executor 模組
+# (保留以確保現有程式碼不會中斷)

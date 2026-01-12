@@ -333,7 +333,7 @@ class CollapsibleLogPanel(ctk.CTkFrame):
         self.arrow_label = ctk.CTkLabel(
             left_frame,
             text="▼" if self._expanded else "▶",
-            font=("Segoe UI", 10),
+            font=Fonts.to_tuple(Fonts.CAPTION),
             text_color=theme_manager.colors.text_muted,
             width=16
         )

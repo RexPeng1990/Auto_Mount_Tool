@@ -10,375 +10,19 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 from typing import Optional, Callable, Any, List, Dict
 import os
-import re
 import threading
 
-from ui.theme import ThemeManager, Fonts, Spacing, theme_manager
+from ui.theme import Fonts, theme_manager
 from ui.components import (
     ModernButton, ModernCard, ModernEntry, ModernTooltip, 
-    StatusBadge, FormField, SectionTitle, ModernProgressBar
+    StatusBadge, ModernComboBox
 )
+from ui.widgets.driver_table import DriverTable
 from app.driver_manager import DriverManager
 from app.config import DRIVER_EXPORT_DIR, ensure_output_dirs
 
 # 用於追蹤當前選擇的目標
 _DRIVER_PAGE_CURRENT_TARGET = ""
-
-
-def natural_sort_key(s: str) -> list:
-    """
-    自然排序 key 函數
-    將字串中的數字部分轉換為整數進行比較
-    例如: "oem10.inf" -> ["oem", 10, ".inf"]
-    """
-    return [int(text) if text.isdigit() else text.lower() 
-            for text in re.split(r'(\d+)', s)]
-
-
-class DriverTable(ctk.CTkFrame):
-    """
-    現代化驅動程式表格組件
-    支援多選、排序、搜尋
-    """
-    
-    def __init__(
-        self,
-        master: Any,
-        on_selection_change: Optional[Callable[[int], None]] = None,
-        **kwargs
-    ):
-        """
-        初始化驅動程式表格
-        
-        Args:
-            master: 父組件
-            on_selection_change: 選取變更回調 (selected_count)
-        """
-        super().__init__(master, fg_color="transparent", **kwargs)
-        
-        self._on_selection_change = on_selection_change
-        
-        # 資料儲存
-        self._drivers: List[Dict] = []
-        self._filtered_drivers: List[Dict] = []
-        self._selected_indices: set = set()
-        self._sort_column: str = ""
-        self._sort_reverse: bool = False
-        self._search_text: str = ""
-        
-        self._build_ui()
-    
-    def _build_ui(self):
-        """建立 UI"""
-        # 表格容器（使用原生 ttk.Treeview 因為 CustomTkinter 沒有表格組件）
-        tree_container = ctk.CTkFrame(self, fg_color="transparent")
-        tree_container.pack(fill="both", expand=True)
-        
-        # 設定 ttk 樣式
-        style = tk.ttk.Style()
-        style.configure(
-            "Driver.Treeview",
-            background=theme_manager.colors.card_bg,
-            foreground=theme_manager.colors.text_primary,
-            fieldbackground=theme_manager.colors.card_bg,
-            rowheight=28,
-            font=Fonts.to_tuple(Fonts.BODY)
-        )
-        style.configure(
-            "Driver.Treeview.Heading",
-            background=theme_manager.colors.border,
-            foreground=theme_manager.colors.text_primary,
-            font=Fonts.to_tuple(Fonts.LABEL)
-        )
-        style.map("Driver.Treeview", 
-            background=[("selected", theme_manager.colors.primary)],
-            foreground=[("selected", "#ffffff")]
-        )
-        
-        # 建立 Treeview
-        columns = ("select", "name", "inf", "provider", "version", "date", "class")
-        self.tree = tk.ttk.Treeview(
-            tree_container,
-            columns=columns,
-            show="headings",
-            selectmode="extended",
-            style="Driver.Treeview"
-        )
-        
-        # 設定欄位標題
-        self._select_all = False
-        self.tree.heading("select", text="☐", command=self._on_toggle_select_all)
-        self.tree.heading("name", text="驅動名稱", command=lambda: self._on_sort("name"))
-        self.tree.heading("inf", text="INF 檔案", command=lambda: self._on_sort("inf"))
-        self.tree.heading("provider", text="提供者", command=lambda: self._on_sort("provider"))
-        self.tree.heading("version", text="版本", command=lambda: self._on_sort("version"))
-        self.tree.heading("date", text="日期", command=lambda: self._on_sort("date"))
-        self.tree.heading("class", text="類型", command=lambda: self._on_sort("class"))
-        
-        # 設定欄位寬度
-        self.tree.column("select", width=40, minwidth=40, anchor="center", stretch=False)
-        self.tree.column("name", width=180, minwidth=120)
-        self.tree.column("inf", width=90, minwidth=70)
-        self.tree.column("provider", width=150, minwidth=100)
-        self.tree.column("version", width=100, minwidth=80)
-        self.tree.column("date", width=100, minwidth=80)
-        self.tree.column("class", width=100, minwidth=80)
-        
-        # 點擊事件
-        self.tree.bind("<ButtonRelease-1>", self._on_row_click)
-        self.tree.bind("<Double-1>", self._on_double_click)
-        
-        # 滾輪事件 - 讓 Treeview 自己處理滾輪，不傳播到父視窗
-        self.tree.bind("<MouseWheel>", self._on_tree_mousewheel)
-        self.tree.bind("<Enter>", self._on_tree_enter)
-        self.tree.bind("<Leave>", self._on_tree_leave)
-        self._tree_has_focus = False
-        
-        # 滾動條
-        scroll_y = ctk.CTkScrollbar(tree_container, command=self.tree.yview)
-        scroll_x = ctk.CTkScrollbar(tree_container, orientation="horizontal", command=self.tree.xview)
-        self.tree.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
-        
-        # 佈局
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        scroll_y.grid(row=0, column=1, sticky="ns")
-        scroll_x.grid(row=1, column=0, sticky="ew")
-        tree_container.grid_rowconfigure(0, weight=1)
-        tree_container.grid_columnconfigure(0, weight=1)
-    
-    def _on_toggle_select_all(self):
-        """切換全選/取消全選"""
-        self._select_all = not self._select_all
-        
-        # 更新標題
-        self.tree.heading("select", text="☑" if self._select_all else "☐")
-        
-        # 更新所有行
-        if self._select_all:
-            self._selected_indices = set(range(len(self._filtered_drivers)))
-        else:
-            self._selected_indices.clear()
-        
-        self._refresh_tree()
-        self._notify_selection_change()
-    
-    def _on_row_click(self, event):
-        """行點擊事件"""
-        region = self.tree.identify("region", event.x, event.y)
-        if region != "cell":
-            return
-        
-        column = self.tree.identify_column(event.x)
-        item = self.tree.identify_row(event.y)
-        
-        if not item:
-            return
-        
-        # 取得行索引
-        try:
-            idx = self.tree.index(item)
-        except:
-            return
-        
-        # 只有點擊第一欄才切換選取
-        if column == "#1":
-            if idx in self._selected_indices:
-                self._selected_indices.discard(idx)
-            else:
-                self._selected_indices.add(idx)
-            
-            self._refresh_row(item, idx)
-            self._update_select_all_state()
-            self._notify_selection_change()
-    
-    def _on_double_click(self, event):
-        """雙擊查看詳情"""
-        item = self.tree.identify_row(event.y)
-        if item:
-            try:
-                idx = self.tree.index(item)
-                if idx < len(self._filtered_drivers):
-                    driver = self._filtered_drivers[idx]
-                    self._show_driver_details(driver)
-            except:
-                pass
-    
-    def _on_tree_mousewheel(self, event):
-        """處理 Treeview 的滾輪事件"""
-        # 滾動 Treeview
-        self.tree.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        # 返回 "break" 阻止事件繼續傳播到父視窗
-        return "break"
-    
-    def _on_tree_enter(self, event):
-        """滑鼠進入 Treeview"""
-        self._tree_has_focus = True
-        # 綁定全域滾輪事件到 Treeview
-        self.winfo_toplevel().bind("<MouseWheel>", self._on_global_mousewheel)
-    
-    def _on_tree_leave(self, event):
-        """滑鼠離開 Treeview"""
-        self._tree_has_focus = False
-        # 解除綁定
-        try:
-            self.winfo_toplevel().unbind("<MouseWheel>")
-        except:
-            pass
-    
-    def _on_global_mousewheel(self, event):
-        """全域滾輪事件處理"""
-        if self._tree_has_focus:
-            self.tree.yview_scroll(int(-1 * (event.delta / 120)), "units")
-            return "break"
-    
-    def _show_driver_details(self, driver: Dict):
-        """顯示驅動程式詳情"""
-        details = "\n".join([f"{k}: {v}" for k, v in driver.items()])
-        messagebox.showinfo("驅動程式詳情", details)
-    
-    def _on_sort(self, column: str):
-        """排序"""
-        if self._sort_column == column:
-            self._sort_reverse = not self._sort_reverse
-        else:
-            self._sort_column = column
-            self._sort_reverse = False
-        
-        self._apply_filter_and_sort()
-    
-    def _apply_filter_and_sort(self):
-        """應用過濾和排序"""
-        # 過濾
-        if self._search_text:
-            search_lower = self._search_text.lower()
-            self._filtered_drivers = [
-                d for d in self._drivers
-                if any(search_lower in str(v).lower() for v in d.values())
-            ]
-        else:
-            self._filtered_drivers = self._drivers.copy()
-        
-        # 排序
-        if self._sort_column:
-            # 欄位對應的資料 key（與 _refresh_tree 中 values 順序一致）
-            key_map = {
-                "name": "PublishedName",      # 驅動名稱 -> oem*.inf
-                "inf": "OriginalFileName",    # INF 檔案 -> 原始檔名
-                "provider": "Provider",
-                "version": "Version",
-                "date": "Date",
-                "class": "ClassName"
-            }
-            key = key_map.get(self._sort_column, self._sort_column)
-            # 使用自然排序，讓 oem2 排在 oem10 前面
-            self._filtered_drivers.sort(
-                key=lambda d: natural_sort_key(str(d.get(key, ""))),
-                reverse=self._sort_reverse
-            )
-        
-        # 清空選取
-        self._selected_indices.clear()
-        self._select_all = False
-        self.tree.heading("select", text="☐")
-        
-        self._refresh_tree()
-        self._notify_selection_change()
-    
-    def _refresh_tree(self):
-        """刷新表格顯示"""
-        # 清空
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        
-        # 重新填入
-        # 欄位順序: select, name(PublishedName), inf(OriginalFileName), provider, version, date, class
-        for i, driver in enumerate(self._filtered_drivers):
-            selected = "☑" if i in self._selected_indices else "☐"
-            values = (
-                selected,
-                driver.get("PublishedName", ""),     # 驅動名稱 (oem*.inf)
-                driver.get("OriginalFileName", ""),  # INF 檔案 (原始檔名)
-                driver.get("Provider", ""),
-                driver.get("Version", ""),
-                driver.get("Date", ""),
-                driver.get("ClassName", "")
-            )
-            self.tree.insert("", "end", values=values)
-    
-    def _refresh_row(self, item: str, idx: int):
-        """刷新單行"""
-        if idx < len(self._filtered_drivers):
-            driver = self._filtered_drivers[idx]
-            selected = "☑" if idx in self._selected_indices else "☐"
-            values = (
-                selected,
-                driver.get("PublishedName", ""),     # 驅動名稱 (oem*.inf)
-                driver.get("OriginalFileName", ""),  # INF 檔案 (原始檔名)
-                driver.get("Provider", ""),
-                driver.get("Version", ""),
-                driver.get("Date", ""),
-                driver.get("ClassName", "")
-            )
-            self.tree.item(item, values=values)
-    
-    def _update_select_all_state(self):
-        """更新全選狀態"""
-        total = len(self._filtered_drivers)
-        selected = len(self._selected_indices)
-        
-        if selected == total and total > 0:
-            self._select_all = True
-            self.tree.heading("select", text="☑")
-        else:
-            self._select_all = False
-            self.tree.heading("select", text="☐")
-    
-    def _notify_selection_change(self):
-        """通知選取變更"""
-        if self._on_selection_change:
-            self._on_selection_change(len(self._selected_indices))
-    
-    # === 公開方法 ===
-    
-    def set_drivers(self, drivers: List[Dict]):
-        """設定驅動程式列表"""
-        self._drivers = drivers
-        self._search_text = ""
-        self._selected_indices.clear()
-        self._apply_filter_and_sort()
-    
-    def search(self, text: str):
-        """搜尋"""
-        self._search_text = text.strip()
-        self._apply_filter_and_sort()
-    
-    def clear_search(self):
-        """清除搜尋"""
-        self._search_text = ""
-        self._apply_filter_and_sort()
-    
-    def get_selected_drivers(self) -> List[Dict]:
-        """取得已選取的驅動程式"""
-        return [
-            self._filtered_drivers[i] 
-            for i in sorted(self._selected_indices)
-            if i < len(self._filtered_drivers)
-        ]
-    
-    def get_selected_published_names(self) -> List[str]:
-        """取得已選取的 PublishedName 列表"""
-        return [d.get("PublishedName", "") for d in self.get_selected_drivers()]
-    
-    def get_count(self) -> tuple:
-        """取得 (總數, 已選取數)"""
-        return len(self._filtered_drivers), len(self._selected_indices)
-    
-    def clear(self):
-        """清空表格"""
-        self._drivers.clear()
-        self._filtered_drivers.clear()
-        self._selected_indices.clear()
-        self._refresh_tree()
 
 
 class DriverPage(ctk.CTkFrame):
@@ -458,21 +102,11 @@ class DriverPage(ctk.CTkFrame):
             anchor="w"
         ).pack(side="left")
         
-        self.combo_target = ctk.CTkComboBox(
+        self.combo_target = ModernComboBox(
             target_row,
-            width=400,
+            width=300,
             variable=self.var_target_mount,
-            state="readonly",
             values=[""],
-            font=Fonts.to_tuple(Fonts.BODY),
-            dropdown_font=Fonts.to_tuple(Fonts.BODY),
-            fg_color="#ffffff",
-            border_color="#e0e0e0",
-            border_width=1,
-            button_color="#e0e0e0",
-            button_hover_color="#bdbdbd",
-            dropdown_fg_color="#ffffff",
-            dropdown_hover_color="#e3f2fd",
             command=self._on_target_changed
         )
         self.combo_target.pack(side="left", padx=(8, 0))
@@ -559,7 +193,7 @@ class DriverPage(ctk.CTkFrame):
         
         self.btn_remove = ModernButton(
             left_btns,
-            text="🗑️ 移除驅動",
+            text="🗑 移除驅動",
             variant="danger",
             command=self._on_remove_drivers
         )
@@ -623,7 +257,7 @@ class DriverPage(ctk.CTkFrame):
                 self.status_badge.set_status("已掛載", "success")
                 self._refresh_driver_list()
             else:
-                self.status_badge.set_status("未掛載", "warning")
+                self.status_badge.set_status("未掛載", "default")
                 self.driver_table.clear()
                 self.var_status.set("映像未掛載，請先掛載後再操作")
         else:
@@ -896,10 +530,37 @@ class DriverPage(ctk.CTkFrame):
             from app.wim_manager import WIMManager
             is_mounted, _, _ = WIMManager.is_path_mounted(mount_dir)
         
-        state = "normal" if is_mounted else "disabled"
-        self.btn_extract.configure(state=state)
-        self.btn_add.configure(state=state)
-        self.btn_remove.configure(state=state)
+        # 檢查是否為唯讀模式
+        is_readonly = self._get_current_readonly()
+        
+        # 萃取按鈕：只要已掛載就可用
+        extract_state = "normal" if is_mounted else "disabled"
+        self.btn_extract.configure(state=extract_state)
+        
+        # 新增/移除按鈕：已掛載且非唯讀才可用
+        modify_state = "normal" if (is_mounted and not is_readonly) else "disabled"
+        self.btn_add.configure(state=modify_state)
+        self.btn_remove.configure(state=modify_state)
+    
+    def _get_current_readonly(self) -> bool:
+        """取得當前選擇映像的唯讀狀態"""
+        selection = self.combo_target.get()
+        if not selection or "WIM#" not in selection:
+            return True  # 預設為唯讀（安全起見）
+        
+        # 從選項中提取 WIM 編號
+        try:
+            wim_num = int(selection.split("WIM#")[1].split(" ")[0])
+        except (ValueError, IndexError):
+            return True
+        
+        # 從 _get_mounted_dirs 獲取唯讀狀態
+        mounted_dirs = self._get_mounted_dirs()
+        for name, path, readonly in mounted_dirs:
+            if f"WIM#{wim_num}" == name:
+                return readonly
+        
+        return True  # 找不到則預設為唯讀
     
     # === 公開方法 ===
     
@@ -918,7 +579,14 @@ class DriverPage(ctk.CTkFrame):
         
         options = []
         first_mounted_idx = -1
-        for i, (name, path) in enumerate(mounted_dirs):
+        for i, item in enumerate(mounted_dirs):
+            # 支援舊格式 (name, path) 和新格式 (name, path, readonly)
+            if len(item) >= 3:
+                name, path, readonly = item[0], item[1], item[2]
+            else:
+                name, path = item[0], item[1]
+                readonly = True
+            
             if path:
                 is_mounted, _, _ = WIMManager.is_path_mounted(path)
                 status = "✓ 已掛載" if is_mounted else "○ 未掛載"
@@ -980,8 +648,40 @@ class DriverPage(ctk.CTkFrame):
             if is_mounted:
                 self.status_badge.set_status("已掛載", "success")
             else:
-                self.status_badge.set_status("未掛載", "warning")
+                self.status_badge.set_status("未掛載", "default")
         else:
             self.status_badge.set_status("未選擇", "default")
+    
+    def on_wim_unmounted(self, unmounted_slot: int, switch_to_slot: int = None):
+        """
+        WIM 卸載時的處理
+        
+        Args:
+            unmounted_slot: 被卸載的 WIM 槽位編號
+            switch_to_slot: 要切換到的槽位編號（如果有另一個已掛載）
+        """
+        global _DRIVER_PAGE_CURRENT_TARGET
+        
+        # 清除驅動清單
+        self.driver_table.clear()
+        
+        # 重新整理選項
+        self.refresh_targets(auto_load=False)
+        
+        if switch_to_slot:
+            # 自動選擇另一個已掛載的 WIM
+            options = self.combo_target.cget("values")
+            for opt in options:
+                if f"WIM#{switch_to_slot}" in opt and "✓ 已掛載" in opt:
+                    self.combo_target.set(opt)
+                    # 觸發載入
+                    self._on_target_changed(opt)
+                    break
+        else:
+            # 沒有其他已掛載的，顯示空狀態
+            _DRIVER_PAGE_CURRENT_TARGET = ""
+            self.status_badge.set_status("未掛載", "default")
+            self.var_status.set("請掛載映像後操作")
+            self._update_button_states()
         
         self._update_button_states()

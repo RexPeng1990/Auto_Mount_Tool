@@ -54,7 +54,7 @@ class SidebarItem(ctk.CTkFrame):
         self.lbl_text = ctk.CTkLabel(
             self.inner,
             text=self._text,
-            font=("Microsoft JhengHei UI", 13),
+            font=Fonts.to_tuple(Fonts.BODY),
             text_color="#37474f",
             anchor="w"
         )
@@ -143,14 +143,14 @@ class Sidebar(ctk.CTkFrame):
         ctk.CTkLabel(
             title_frame,
             text=self._title,
-            font=("Microsoft JhengHei UI", 13, "bold"),
+            font=Fonts.to_tuple(Fonts.TITLE_SMALL),
             text_color="#1976d2"
         ).pack(anchor="w")
         
         ctk.CTkLabel(
             title_frame,
             text=f"v{self._version}",
-            font=("Microsoft JhengHei UI", 10),
+            font=Fonts.to_tuple(Fonts.CAPTION),
             text_color="#90a4ae"
         ).pack(anchor="w")
         
@@ -158,25 +158,24 @@ class Sidebar(ctk.CTkFrame):
         self.nav_frame = ctk.CTkFrame(self, fg_color="transparent")
         self.nav_frame.pack(fill="both", expand=True)
         
-        # === 底部 ===
-        footer = ctk.CTkFrame(self, fg_color="transparent", height=50)
-        footer.pack(fill="x", side="bottom", pady=(0, 10))
-        footer.pack_propagate(False)
+        # === 底部開發者資訊 ===
+        footer = ctk.CTkFrame(self, fg_color="transparent")
+        footer.pack(fill="x", side="bottom", pady=(0, 12))
         
-        # 登出/退出按鈕
-        self.btn_exit = ctk.CTkButton(
+        # 分隔線
+        ctk.CTkFrame(
             footer,
-            text="⏻",
-            font=("Segoe UI", 16),
-            width=36,
-            height=36,
-            corner_radius=8,
-            fg_color="transparent",
-            hover_color="#ffebee",
-            text_color="#78909c",
-            command=self._on_exit
-        )
-        self.btn_exit.pack(side="right", padx=16)
+            height=1,
+            fg_color="#e1f0ff"
+        ).pack(fill="x", padx=16, pady=(0, 10))
+        
+        # 開發者資訊（一行式）
+        ctk.CTkLabel(
+            footer,
+            text="Developed by RexPeng",
+            font=("Microsoft JhengHei UI", 11),
+            text_color="#90a4ae"
+        ).pack(anchor="center")
     
     def add_item(self, key: str, text: str, icon: str = ""):
         """新增導航項目"""
@@ -207,10 +206,6 @@ class Sidebar(ctk.CTkFrame):
         
         if self._on_navigate:
             self._on_navigate(key)
-    
-    def _on_exit(self):
-        """退出"""
-        self.winfo_toplevel().quit()
     
     def get_current_page(self) -> Optional[str]:
         """取得當前頁面"""

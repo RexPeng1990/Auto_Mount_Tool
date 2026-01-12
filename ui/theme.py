@@ -165,30 +165,30 @@ class Fonts:
     """字體預設配置"""
     
     # 標題字體
-    TITLE_LARGE = FontConfig("Microsoft JhengHei UI", 24, "bold")
-    TITLE = FontConfig("Microsoft JhengHei UI", 18, "bold")
-    TITLE_SMALL = FontConfig("Microsoft JhengHei UI", 14, "bold")
+    TITLE_LARGE = FontConfig("Microsoft JhengHei UI", 28, "bold")
+    TITLE = FontConfig("Microsoft JhengHei UI", 22, "bold")
+    TITLE_SMALL = FontConfig("Microsoft JhengHei UI", 18, "bold")
     
     # 內文字體
-    BODY_LARGE = FontConfig("Microsoft JhengHei UI", 14, "normal")
-    BODY = FontConfig("Microsoft JhengHei UI", 12, "normal")
-    BODY_SMALL = FontConfig("Microsoft JhengHei UI", 11, "normal")
+    BODY_LARGE = FontConfig("Microsoft JhengHei UI", 18, "normal")
+    BODY = FontConfig("Microsoft JhengHei UI", 16, "normal")
+    BODY_SMALL = FontConfig("Microsoft JhengHei UI", 14, "normal")
     
     # 輔助字體
-    CAPTION = FontConfig("Microsoft JhengHei UI", 10, "normal")
-    CAPTION_SMALL = FontConfig("Microsoft JhengHei UI", 9, "normal")
+    CAPTION = FontConfig("Microsoft JhengHei UI", 14, "normal")
+    CAPTION_SMALL = FontConfig("Microsoft JhengHei UI", 12, "normal")
     
     # 按鈕字體
-    BUTTON = FontConfig("Microsoft JhengHei UI", 12, "bold")
-    BUTTON_SMALL = FontConfig("Microsoft JhengHei UI", 11, "normal")
+    BUTTON = FontConfig("Microsoft JhengHei UI", 16, "bold")
+    BUTTON_SMALL = FontConfig("Microsoft JhengHei UI", 14, "normal")
     
     # 程式碼/日誌字體
-    CODE = FontConfig("Consolas", 11, "normal")
-    CODE_SMALL = FontConfig("Consolas", 10, "normal")
+    CODE = FontConfig("Consolas", 14, "normal")
+    CODE_SMALL = FontConfig("Consolas", 12, "normal")
     
     # 標籤字體
-    LABEL = FontConfig("Microsoft JhengHei UI", 12, "normal")
-    LABEL_SMALL = FontConfig("Microsoft JhengHei UI", 10, "normal")
+    LABEL = FontConfig("Microsoft JhengHei UI", 16, "normal")
+    LABEL_SMALL = FontConfig("Microsoft JhengHei UI", 14, "normal")
     
     @staticmethod
     def to_tuple(font_config: FontConfig) -> Tuple[str, int, str]:

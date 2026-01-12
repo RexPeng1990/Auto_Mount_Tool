@@ -1,17 +1,23 @@
 # !/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-現代化 UI 組件模組
-提供可重用的現代化 UI 組件
-
-注意：此檔案現在作為向後相容的入口點，
-實際實作已移至 ui/widgets/ 子模組
+UI Widgets 模組
+可重用的 UI 小部件
 """
 
-# 從子模組重新匯出所有組件
+# 驅動表格
+from ui.widgets.driver_table import DriverTable, natural_sort_key
+
+# 按鈕組件
 from ui.widgets.button import ModernButton, IconButton
+
+# 卡片組件
 from ui.widgets.card import ModernCard, SectionTitle, EmptyState
+
+# 表單組件
 from ui.widgets.form import ModernEntry, FormField, ModernComboBox
+
+# 回饋組件
 from ui.widgets.feedback import (
     ModernTooltip,
     StatusBadge,
@@ -19,21 +25,35 @@ from ui.widgets.feedback import (
     ModernSwitch,
 )
 
+# 對話框組件
+from ui.widgets.dialog import (
+    ModernDialog,
+    ConfirmDialog,
+    UnmountWarningDialog,
+)
+
 __all__ = [
-    # 按鈕組件
+    # 驅動表格
+    'DriverTable',
+    'natural_sort_key',
+    # 按鈕
     'ModernButton',
     'IconButton',
-    # 卡片組件
+    # 卡片
     'ModernCard',
     'SectionTitle',
     'EmptyState',
-    # 表單組件
+    # 表單
     'ModernEntry',
     'FormField',
     'ModernComboBox',
-    # 回饋組件
+    # 回饋
     'ModernTooltip',
     'StatusBadge',
     'ModernProgressBar',
     'ModernSwitch',
+    # 對話框
+    'ModernDialog',
+    'ConfirmDialog',
+    'UnmountWarningDialog',
 ]

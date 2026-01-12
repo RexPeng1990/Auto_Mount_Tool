@@ -13,7 +13,7 @@ import os
 import shutil
 
 from ui.theme import ThemeManager, Fonts, theme_manager
-from ui.components import ModernButton, ModernCard, StatusBadge
+from ui.components import ModernButton, ModernCard, StatusBadge, ModernComboBox
 
 
 class ScriptPage(ctk.CTkFrame):
@@ -44,7 +44,7 @@ class ScriptPage(ctk.CTkFrame):
         ctk.CTkLabel(
             self,
             text="WinPE 腳本管理",
-            font=("Microsoft JhengHei UI", 24, "bold"),
+            font=Fonts.to_tuple(Fonts.TITLE_LARGE),
             text_color=theme_manager.colors.text_primary
         ).pack(anchor="w", pady=(0, 16))
         
@@ -70,12 +70,11 @@ class ScriptPage(ctk.CTkFrame):
         ).pack(side="left")
         
         self.var_target = ctk.StringVar()
-        self.combo_target = ctk.CTkComboBox(
+        self.combo_target = ModernComboBox(
             target_row,
             variable=self.var_target,
             values=[""],
-            width=350,
-            state="readonly",
+            width=250,
             command=self._on_target_changed
         )
         self.combo_target.pack(side="left", padx=(8, 0))
@@ -183,7 +182,7 @@ class ScriptPage(ctk.CTkFrame):
         self.text_editor = tk.Text(
             editor_container,
             wrap="none",
-            font=("Consolas", 11),
+            font=Fonts.to_tuple(Fonts.CODE),
             bg="#1e1e1e",
             fg="#d4d4d4",
             insertbackground="#ffffff",
@@ -238,7 +237,7 @@ class ScriptPage(ctk.CTkFrame):
             else:
                 self._current_file_path = ""
                 self.text_editor.delete("1.0", "end")
-                self.status_badge.set_status("檔案不存在", "warning")
+                self.status_badge.set_status("未掛載", "default")
                 self.lbl_path.configure(text=f"⚠️ 找不到: {startnet_path}")
                 self._on_log(f"找不到 startnet.cmd: {startnet_path}")
         else:
@@ -371,7 +370,11 @@ class ScriptPage(ctk.CTkFrame):
         from app.wim_manager import WIMManager
         
         options = []
-        for name, path in mounted_dirs:
+        for item in mounted_dirs:
+            # 支援舊格式 (name, path) 和新格式 (name, path, readonly)
+            name = item[0]
+            path = item[1] if len(item) > 1 else ""
+            
             if path:
                 is_mounted, _, _ = WIMManager.is_path_mounted(path)
                 status = "✓ 已掛載" if is_mounted else "○ 未掛載"
